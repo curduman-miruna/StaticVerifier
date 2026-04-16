@@ -57,3 +57,56 @@ test('deduplicates identical API calls', () => {
 		responseSchema: 'User[]'
 	});
 });
+
+test('ignores unknown and any return types as response schema', () => {
+	const source = `
+		async function loadUnknown(): Promise<unknown> {
+			await fetch('/api/unknown');
+		}
+
+		const loadAny = async (): Promise<any> => {
+			await fetch('/api/any');
+		};
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+
+	assert.equal(endpoints.length, 2);
+	assert.deepEqual(endpoints[0], { method: 'GET', path: '/api/unknown', responseSchema: undefined });
+	assert.deepEqual(endpoints[1], { method: 'GET', path: '/api/any', responseSchema: undefined });
+});
+
+test('extracts multiple client methods and normalizes method casing', () => {
+	const source = `
+		async function run(): Promise<ResultModel> {
+			await http.delete('/api/items/1');
+			await ky.options('/api/items');
+			await client.patch('/api/items/2');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+
+	assert.deepEqual(endpoints, [
+		{ method: 'DELETE', path: '/api/items/1', responseSchema: 'ResultModel' },
+		{ method: 'OPTIONS', path: '/api/items', responseSchema: 'ResultModel' },
+		{ method: 'PATCH', path: '/api/items/2', responseSchema: 'ResultModel' }
+	]);
+});
+
+test('keeps endpoints when method/path match but response schema differs', () => {
+	const source = `
+		async function a(): Promise<UserA> {
+			await fetch('/api/user');
+		}
+		async function b(): Promise<UserB> {
+			await fetch('/api/user');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+
+	assert.equal(endpoints.length, 2);
+	assert.deepEqual(endpoints[0], { method: 'GET', path: '/api/user', responseSchema: 'UserA' });
+	assert.deepEqual(endpoints[1], { method: 'GET', path: '/api/user', responseSchema: 'UserB' });
+});
