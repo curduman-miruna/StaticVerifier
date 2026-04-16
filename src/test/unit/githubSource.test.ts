@@ -130,3 +130,41 @@ test('returns 0 when tree response has no files', async () => {
 		globalThis.fetch = originalFetch;
 	}
 });
+
+test('returns 0 when fetch throws network error for repo url', async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () => {
+		throw new Error('network down');
+	}) as typeof fetch;
+
+	try {
+		const count = await countGitHubFiles('https://github.com/acme/platform');
+		assert.equal(count, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test('returns 0 when github json payload is invalid', async () => {
+	const originalFetch = globalThis.fetch;
+	let called = false;
+	globalThis.fetch = (async () => {
+		if (called) {
+			throw new Error('unexpected extra call');
+		}
+		called = true;
+		return {
+			ok: true,
+			json: async () => {
+				throw new Error('invalid json');
+			}
+		} as unknown as Response;
+	}) as typeof fetch;
+
+	try {
+		const count = await countGitHubFiles('https://github.com/acme/platform');
+		assert.equal(count, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
