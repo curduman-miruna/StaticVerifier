@@ -58,7 +58,7 @@ jobs:
         run: npm run check-types
 
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests + Coverage
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,8 +74,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Unit tests
-        run: npm run test:unit
+      - name: Unit tests with coverage thresholds
+        run: npm run test:unit:coverage
 
   build:
     name: Build Package
