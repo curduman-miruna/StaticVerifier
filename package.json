@@ -175,9 +175,12 @@
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "test:unit": "npm run compile-tests && node --test \"out/test/unit/**/*.test.js\"",
+    "test:unit:coverage": "npm run compile-tests && node --experimental-test-coverage --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=70 --test \"out/test/unit/**/*.test.js\"",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
+    "lint:ci": "eslint --max-warnings=0 src",
+    "ci:check": "npm run check-types && npm run lint:ci && npm run test:unit:coverage && npm run package",
     "test": "vscode-test"
   },
   "devDependencies": {
