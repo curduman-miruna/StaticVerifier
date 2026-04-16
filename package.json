@@ -1,0 +1,205 @@
+{
+  "name": "staticverifier",
+  "publisher": "localdev",
+  "displayName": "StaticVerifier",
+  "description": "A static verifier of contract between FE and BE requests",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:staticverifier.helloWorld",
+    "onCommand:staticverifier.verifyContracts",
+    "onCommand:staticverifier.openPopupMockup"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "staticverifier.helloWorld",
+        "title": "StaticVerifier: Hello World"
+      },
+      {
+        "command": "staticverifier.verifyContracts",
+        "title": "StaticVerifier: Verify Contracts"
+      },
+      {
+        "command": "staticverifier.openPopupMockup",
+        "title": "StaticVerifier: Open Popup Mockup"
+      }
+    ],
+    "configuration": {
+      "title": "StaticVerifier",
+      "properties": {
+        "staticverifier.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable StaticVerifier extension features."
+        },
+        "staticverifier.frontendContractPath": {
+          "type": "string",
+          "default": "**/contracts/frontend.contract.json",
+          "description": "Glob used to locate the frontend contract JSON file."
+        },
+        "staticverifier.frontendContractSource": {
+          "type": "string",
+          "enum": [
+            "local",
+            "github"
+          ],
+          "default": "local",
+          "description": "Source type for frontend contract input."
+        },
+        "staticverifier.frontendSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "github"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          "default": [],
+          "description": "Mixed frontend sources. Each row has { type: local|github, value: pathOrUrl }."
+        },
+        "staticverifier.frontendContractPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/contracts/frontend.contract.json"
+          ],
+          "description": "List of frontend contract local path globs."
+        },
+        "staticverifier.frontendContractGitHubUrl": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub URL for frontend contract JSON. Supports github.com/.../blob/... and raw.githubusercontent.com URLs."
+        },
+        "staticverifier.frontendContractGitHubUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of frontend GitHub URLs for contract JSON files."
+        },
+        "staticverifier.backendContractPath": {
+          "type": "string",
+          "default": "**/contracts/backend.contract.json",
+          "description": "Glob used to locate the backend contract JSON file."
+        },
+        "staticverifier.backendContractSource": {
+          "type": "string",
+          "enum": [
+            "local",
+            "github"
+          ],
+          "default": "local",
+          "description": "Source type for backend contract input."
+        },
+        "staticverifier.backendSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "github"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          "default": [],
+          "description": "Mixed backend sources. Each row has { type: local|github, value: pathOrUrl }."
+        },
+        "staticverifier.backendContractPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/contracts/backend.contract.json"
+          ],
+          "description": "List of backend contract local path globs."
+        },
+        "staticverifier.backendContractGitHubUrl": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub URL for backend contract JSON. Supports github.com/.../blob/... and raw.githubusercontent.com URLs."
+        },
+        "staticverifier.backendContractGitHubUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of backend GitHub URLs for contract JSON files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.17",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "^1.115.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.27.3",
+    "eslint": "^9.39.3",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  },
+  "overrides": {
+    "diff": "^8.0.3",
+    "serialize-javascript": "^7.0.5"
+  },
+  "dependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  }
+}

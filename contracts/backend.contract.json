@@ -1,0 +1,10 @@
+{
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "requestSchema": "HealthRequest",
+      "responseSchema": "HealthResponse"
+    }
+  ]
+}

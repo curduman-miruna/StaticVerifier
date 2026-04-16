@@ -1,0 +1,215 @@
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    width: 100%;
+}
+
+body {
+    width: 100%;
+    margin: 0;
+    padding: 12px;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+}
+
+.panel {
+    width: 100%;
+    background: var(--vscode-sideBar-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.panel-header h1 {
+    margin: 0;
+    font-size: 1.15em;
+    font-weight: 600;
+}
+
+.panel-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.corner-button {
+    width: auto;
+    margin-top: 0;
+    padding: 4px 10px;
+    font-size: 0.9em;
+}
+
+.panel-header p {
+    margin: 6px 0 12px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.input-section {
+    display: grid;
+    gap: 6px;
+}
+
+.source-grid-header,
+.source-grid-row {
+    display: grid;
+    grid-template-columns: 120px 1fr 90px 160px;
+    gap: 8px;
+    align-items: center;
+}
+
+.source-grid-header {
+    margin-top: 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
+.tab-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.tab-button {
+    margin-top: 0;
+    border: 1px solid var(--vscode-input-border);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+}
+
+.tab-button.is-active {
+    border-color: var(--vscode-focusBorder);
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+
+.secondary-button {
+    margin-top: 0;
+    width: max-content;
+    padding: 6px 10px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+}
+
+.icon-button {
+    margin-top: 0;
+    padding: 6px 10px;
+}
+
+.row-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.count-pill {
+    display: inline-block;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 10px;
+    padding: 3px 8px;
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-input-background);
+    font-size: 0.85em;
+}
+
+.button-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+label {
+    font-size: 0.95em;
+    font-weight: 600;
+}
+
+input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 7px 9px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+}
+
+textarea {
+    width: 100%;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 7px 9px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    resize: vertical;
+    font-family: var(--vscode-font-family);
+}
+
+select {
+    width: 100%;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 7px 9px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+}
+
+button {
+    width: 100%;
+    margin-top: 12px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.results {
+    margin-top: 12px;
+}
+
+.results h2 {
+    margin: 0 0 6px;
+    font-size: 1em;
+}
+
+pre {
+    margin: 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    background: var(--vscode-editorWidget-background);
+    color: var(--vscode-editorWidget-foreground);
+    padding: 8px;
+    max-height: 180px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+    font-size: var(--vscode-editor-font-size, 12px);
+    line-height: 1.4;
+}
+
+.path-preview {
+    margin: 0;
+    max-height: 68px;
+}

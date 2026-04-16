@@ -1,0 +1,30 @@
+import * as vscode from 'vscode';
+
+export type EndpointContract = {
+	method: string;
+	path: string;
+	requestSchema?: string;
+	responseSchema?: string;
+};
+
+export type ParsedContractFile = {
+	uri: vscode.Uri;
+	text: string;
+	endpoints: EndpointContract[];
+};
+
+export type EndpointRecord = {
+	endpoint: EndpointContract;
+	uri: vscode.Uri;
+	text: string;
+};
+
+export type VerificationSummary = {
+	matchedEndpoints: number;
+	missingBackend: number;
+	requestMismatches: number;
+	responseMismatches: number;
+	backendOnly: number;
+	totalIssues: number;
+	comparedFrontend: number;
+};
