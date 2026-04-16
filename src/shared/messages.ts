@@ -10,6 +10,16 @@ export type HostMessage = {
 	type: 'actionResult';
 	text: string;
 } | {
+	type: 'verificationReport';
+	summaryText: string;
+	issues: Array<{
+		file: string;
+		line: number;
+		column: number;
+		severity: 'error' | 'warning' | 'info';
+		message: string;
+	}>;
+} | {
 	type: 'browseResult';
 	side: ContractSide;
 	index: number;

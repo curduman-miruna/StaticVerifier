@@ -1,5 +1,7 @@
 import type { InitialState } from '../../../shared/messages';
 
+declare module '*.css';
+
 declare global {
 	function acquireVsCodeApi<T = { postMessage: (message: unknown) => void }>(): T;
 

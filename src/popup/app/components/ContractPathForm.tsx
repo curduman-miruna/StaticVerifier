@@ -13,8 +13,12 @@ type ContractPathFormProps = {
 	onRemoveEntry: (side: ContractSide, index: number) => void;
 	onBrowseLocal: (side: ContractSide, index: number) => void;
 	getEntryCount: (side: ContractSide, entry: ContractSourceEntry) => number | undefined;
-	onSavePaths: () => void;
+	onPrimaryAction: () => void;
+	primaryActionLabel: string;
+	isPrimaryDoneAction: boolean;
 	isSaving: boolean;
+	isCounting: boolean;
+	countStatus: 'idle' | 'loading' | 'done';
 };
 
 export function ContractPathForm(props: ContractPathFormProps) {
@@ -29,14 +33,18 @@ export function ContractPathForm(props: ContractPathFormProps) {
 		onRemoveEntry,
 		onBrowseLocal,
 		getEntryCount,
-		onSavePaths,
-		isSaving
+		onPrimaryAction,
+		primaryActionLabel,
+		isPrimaryDoneAction,
+		isSaving,
+		isCounting,
+		countStatus
 	} = props;
 
 	const activeConfig = activeTab === 'frontend' ? frontend : backend;
 
 	return (
-		<section className="input-section">
+		<section className="input-section source-editor">
 			<div className="tab-row" role="tablist" aria-label="Contract side">
 				<button
 					type="button"
@@ -56,12 +64,21 @@ export function ContractPathForm(props: ContractPathFormProps) {
 				</button>
 			</div>
 
-			<label>Sources</label>
+			<div className="editor-header">
+				<div>
+					<p className="editor-title">{activeTab === 'frontend' ? 'Frontend Sources' : 'Backend Sources'}</p>
+					<p className="editor-subtitle">Mix local paths and GitHub links for source loading.</p>
+				</div>
+				<button type="button" className="secondary-button" onClick={() => onAddEntry(activeTab)} disabled={isSaving}>
+					Add Source
+				</button>
+			</div>
+
 			<div className="source-grid-header" aria-hidden="true">
 				<span>Source Type</span>
 				<span>Project Link / Path</span>
 				<span>Files</span>
-				<span>Action</span>
+				<span>Actions</span>
 			</div>
 
 			{activeConfig.entries.map((entry, index) => (
@@ -85,8 +102,11 @@ export function ContractPathForm(props: ContractPathFormProps) {
 					/>
 					<span className="count-pill">
 						{(() => {
+							if (isCounting) {
+								return 'Calculating...';
+							}
 							const count = getEntryCount(activeTab, entry);
-							return typeof count === 'number' ? `${count} files` : '-';
+							return typeof count === 'number' ? `${count} files` : 'Pending';
 						})()}
 					</span>
 					<div className="row-actions">
@@ -114,14 +134,32 @@ export function ContractPathForm(props: ContractPathFormProps) {
 				</div>
 			))}
 
-			<button type="button" className="secondary-button" onClick={() => onAddEntry(activeTab)} disabled={isSaving}>
-				Add Source
-			</button>
-
 			<div className="button-row">
-				<button type="button" onClick={onSavePaths} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Settings'}</button>
-				<span />
+				<span className="editor-hint">Save to validate and persist workspace settings.</span>
+				<button
+					type="button"
+					onClick={onPrimaryAction}
+					disabled={isSaving}
+					className={isPrimaryDoneAction ? 'success-button' : undefined}
+				>
+					{isSaving ? 'Saving...' : primaryActionLabel}
+				</button>
 			</div>
+			{countStatus !== 'idle' ? (
+				<div className={`inline-status ${countStatus === 'loading' ? 'is-loading' : 'is-done'}`}>
+					{countStatus === 'loading' ? (
+						<>
+							<span className="spinner" aria-hidden="true" />
+							<span>Calculating source file counts...</span>
+						</>
+					) : (
+						<>
+							<span className="status-dot" aria-hidden="true" />
+							<span>Done. File counts are up to date.</span>
+						</>
+					)}
+				</div>
+			) : null}
 		</section>
 	);
 }

@@ -14,7 +14,8 @@
     "onStartupFinished",
     "onCommand:staticverifier.helloWorld",
     "onCommand:staticverifier.verifyContracts",
-    "onCommand:staticverifier.openPopupMockup"
+    "onCommand:staticverifier.openPopupMockup",
+    "onCommand:staticverifier.configureVerificationMode"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -30,6 +31,10 @@
       {
         "command": "staticverifier.openPopupMockup",
         "title": "StaticVerifier: Open Popup Mockup"
+      },
+      {
+        "command": "staticverifier.configureVerificationMode",
+        "title": "StaticVerifier: Configure Verification Mode"
       }
     ],
     "configuration": {
@@ -39,6 +44,15 @@
           "type": "boolean",
           "default": true,
           "description": "Enable StaticVerifier extension features."
+        },
+        "staticverifier.verificationMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "default": "auto",
+          "description": "Verification trigger mode. 'auto' runs verification when tracked files are saved. 'manual' runs only from commands/panel actions."
         },
         "staticverifier.frontendContractPath": {
           "type": "string",

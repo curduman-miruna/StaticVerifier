@@ -49,15 +49,39 @@ export default function App() {
 	const [isEditMode, setIsEditMode] = useState(!initialState.hasConfiguredPaths);
 	const [isSaving, setIsSaving] = useState(false);
 	const [sourceCounts, setSourceCounts] = useState<Record<string, number>>({});
+	const [countStatus, setCountStatus] = useState<'idle' | 'loading' | 'done'>('idle');
+	const [isDirty, setIsDirty] = useState(false);
+	const [verificationIssues, setVerificationIssues] = useState<Array<{
+		file: string;
+		line: number;
+		column: number;
+		severity: 'error' | 'warning' | 'info';
+		message: string;
+	}>>([]);
 
 	useHostMessage((message) => {
 		if (message.type === 'actionResult') {
 			setIsSaving(false);
 			setOutput(message.text);
+			if (!message.text.includes('Compared FE endpoints:')) {
+				setVerificationIssues([]);
+			}
 			if (message.text.includes('saved')) {
 				setHasConfiguredPaths(true);
-				setIsEditMode(false);
+				setIsDirty(false);
+				if (countStatus !== 'loading') {
+					setCountStatus('done');
+				}
 			}
+			if (message.text.toLowerCase().includes('failed')) {
+				setCountStatus('idle');
+			}
+			return;
+		}
+
+		if (message.type === 'verificationReport') {
+			setOutput(message.summaryText);
+			setVerificationIssues(message.issues);
 			return;
 		}
 
@@ -67,6 +91,7 @@ export default function App() {
 				next[`${item.side}|${item.type}|${item.value}`] = item.fileCount;
 			}
 			setSourceCounts(next);
+			setCountStatus('done');
 			return;
 		}
 
@@ -92,18 +117,24 @@ export default function App() {
 
 	const updateSide = (
 		side: 'frontend' | 'backend',
-		updater: (current: ContractInput) => ContractInput
+		updater: (current: ContractInput) => ContractInput,
+		options?: { markDirty?: boolean }
 	) => {
+		const markDirty = options?.markDirty ?? true;
 		if (side === 'frontend') {
 			setFrontend((current) => updater(current));
-			return;
+		} else {
+			setBackend((current) => updater(current));
 		}
-
-		setBackend((current) => updater(current));
+		if (markDirty) {
+			setIsDirty(true);
+			setCountStatus('idle');
+		}
 	};
 
 	const savePaths = () => {
 		setIsSaving(true);
+		setCountStatus('loading');
 		setOutput('Saving settings and validating sources...');
 		postToHost({
 			type: 'savePaths',
@@ -116,9 +147,18 @@ export default function App() {
 		postToHost({ type: 'verifyContracts' });
 	};
 
+	const handlePrimaryEditAction = () => {
+		if (!isDirty && countStatus === 'done' && hasConfiguredPaths && !isSaving) {
+			setIsEditMode(false);
+			return;
+		}
+		savePaths();
+	};
+
 	useEffect(() => {
 		if (hasConfiguredPaths && !isEditMode) {
 			verifyContracts();
+			setCountStatus('loading');
 			postToHost({ type: 'refreshSourceCounts' });
 		}
 	}, [hasConfiguredPaths, isEditMode]);
@@ -127,21 +167,35 @@ export default function App() {
 		return sourceCounts[`${side}|${entry.type}|${entry.value.trim()}`];
 	};
 
-	const sourceLabel = (side: 'frontend' | 'backend', input: ContractInput): string => {
-		return input.entries
-			.map((entry) => {
-				const count = getEntryCount(side, entry);
-				const suffix = typeof count === 'number' ? ` (${count} files)` : '';
-				return `${entry.type.toUpperCase()} | ${entry.value}${suffix}`;
-			})
-			.join('\n');
+	const totalSourceRows = frontend.entries.length + backend.entries.length;
+	const getSideFileTotal = (side: 'frontend' | 'backend', input: ContractInput): number | undefined => {
+		let hasAny = false;
+		let total = 0;
+		for (const entry of input.entries) {
+			const count = getEntryCount(side, entry);
+			if (typeof count === 'number') {
+				hasAny = true;
+				total += count;
+			}
+		}
+		return hasAny ? total : undefined;
 	};
+
+	const frontendFiles = getSideFileTotal('frontend', frontend);
+	const backendFiles = getSideFileTotal('backend', backend);
+	const totalFiles = (frontendFiles ?? 0) + (backendFiles ?? 0);
 
 	return (
 		<main className="panel">
 			<header className="panel-header">
+				<div className="panel-title-row">
+					<p className="eyebrow">API Contract Integrity</p>
+					<span className={`status-pill ${hasConfiguredPaths ? 'is-ready' : 'is-setup'}`}>
+						{hasConfiguredPaths ? 'Configured' : 'Setup Required'}
+					</span>
+				</div>
 				<div className="panel-header-row">
-					<h1>StaticVerifier</h1>
+					<h1>StaticVerifier Control Center</h1>
 					{hasConfiguredPaths && !isEditMode ? (
 						<button
 							type="button"
@@ -157,16 +211,36 @@ export default function App() {
 						? 'Current FE/BE sources are configured. Edit or run verification.'
 						: 'First-time setup: configure FE and BE sources before verification.'}
 				</p>
+				<div className="meta-row">
+					<span>{frontend.entries.length} FE sources</span>
+					<span>{backend.entries.length} BE sources</span>
+					<span>{totalSourceRows} total rows</span>
+					<span>{typeof frontendFiles === 'number' && typeof backendFiles === 'number' ? `${totalFiles} indexed files` : 'File index pending'}</span>
+				</div>
 			</header>
 
 			{hasConfiguredPaths && !isEditMode ? (
-				<section className="input-section">
-					<label>Frontend sources</label>
-					<pre className="path-preview">{sourceLabel('frontend', frontend)}</pre>
-					<label>Backend sources</label>
-					<pre className="path-preview">{sourceLabel('backend', backend)}</pre>
-					<div className="button-row">
-						<span />
+				<section className="input-section summary-view">
+					<article className="summary-card">
+						<div className="summary-card-header">
+							<h3>Frontend Sources</h3>
+							<span>{frontend.entries.length}</span>
+						</div>
+						<p className="summary-metric">
+							{countStatus === 'loading' ? '...' : typeof frontendFiles === 'number' ? frontendFiles : '...'} files
+						</p>
+					</article>
+					<article className="summary-card">
+						<div className="summary-card-header">
+							<h3>Backend Sources</h3>
+							<span>{backend.entries.length}</span>
+						</div>
+						<p className="summary-metric">
+							{countStatus === 'loading' ? '...' : typeof backendFiles === 'number' ? backendFiles : '...'} files
+						</p>
+					</article>
+					<div className="button-row summary-actions">
+						<span className="editor-hint">Source paths are hidden here. Use Edit Sources to review or change them.</span>
 						<button type="button" onClick={verifyContracts}>Refresh Verification</button>
 					</div>
 				</section>
@@ -208,17 +282,20 @@ export default function App() {
 						});
 					}}
 					onBrowseLocal={(side, index) => {
-						setIsSaving(true);
 						setOutput('Opening folder picker...');
 						postToHost({ type: 'browseLocal', side, index });
 					}}
 					getEntryCount={getEntryCount}
-					onSavePaths={savePaths}
+					onPrimaryAction={handlePrimaryEditAction}
+					primaryActionLabel={!isDirty && countStatus === 'done' && hasConfiguredPaths ? 'Done, Head Back' : 'Save Sources'}
+					isPrimaryDoneAction={!isDirty && countStatus === 'done' && hasConfiguredPaths}
 					isSaving={isSaving}
+					isCounting={countStatus === 'loading'}
+					countStatus={countStatus}
 				/>
 			)}
 
-			<OutputPanel text={output} />
+			{!isEditMode ? <OutputPanel text={output} issues={verificationIssues} /> : null}
 		</main>
 	);
 }
