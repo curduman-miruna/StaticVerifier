@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ContractPathForm } from './components/ContractPathForm';
 import { DiscoveryPanel } from './components/DiscoveryPanel';
+import { HeaderBar } from './components/HeaderBar';
 import { OutputPanel } from './components/OutputPanel';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
@@ -71,6 +72,7 @@ export default function App() {
 	}>>([]);
 	const [isDiscoveringApis, setIsDiscoveringApis] = useState(false);
 	const [resultTab, setResultTab] = useState<'verification' | 'discovery'>('verification');
+	const [lastScannedAt, setLastScannedAt] = useState<Date | undefined>(undefined);
 
 	useHostMessage((message) => {
 		if (message.type === 'actionResult') {
@@ -95,12 +97,14 @@ export default function App() {
 		if (message.type === 'verificationReport') {
 			setOutput(message.summaryText);
 			setVerificationIssues(message.issues);
+			setLastScannedAt(new Date());
 			return;
 		}
 
 		if (message.type === 'discoveredApis') {
 			setDiscoveredApis(message.items);
 			setIsDiscoveringApis(false);
+			setLastScannedAt(new Date());
 			return;
 		}
 
@@ -111,6 +115,7 @@ export default function App() {
 			}
 			setSourceCounts(next);
 			setCountStatus('done');
+			setLastScannedAt(new Date());
 			return;
 		}
 
@@ -222,40 +227,37 @@ export default function App() {
 	const frontendFiles = getSideFileTotal('frontend', frontend);
 	const backendFiles = getSideFileTotal('backend', backend);
 	const totalFiles = (frontendFiles ?? 0) + (backendFiles ?? 0);
+	const mode = isEditMode ? 'configure' : 'monitor';
+	const hasVerificationErrors =
+		output.toLowerCase().includes('failed') || verificationIssues.some((issue) => issue.severity === 'error');
+	const headerStatus: 'ready' | 'scanning' | 'error' | 'unconfigured' = !hasConfiguredPaths
+		? 'unconfigured'
+		: hasVerificationErrors
+			? 'error'
+			: 'ready';
+	const isHeaderScanning = isSaving || countStatus === 'loading' || isDiscoveringApis;
 
 	return (
 		<main className="panel">
-			<header className="panel-header">
-				<div className="panel-title-row">
-					<p className="eyebrow">API Contract Integrity</p>
-					<span className={`status-pill ${hasConfiguredPaths ? 'is-ready' : 'is-setup'}`}>
-						{hasConfiguredPaths ? 'Configured' : 'Setup Required'}
-					</span>
-				</div>
-				<div className="panel-header-row">
-					<h1>StaticVerifier Control Center</h1>
-					{hasConfiguredPaths && !isEditMode ? (
-						<button
-							type="button"
-							className="corner-button"
-							onClick={() => setIsEditMode(true)}
-						>
-							Edit Sources
-						</button>
-					) : null}
-				</div>
-				<p>
-					{hasConfiguredPaths && !isEditMode
-						? 'Current FE/BE sources are configured. Edit or run verification.'
-						: 'First-time setup: configure FE and BE sources before verification.'}
-				</p>
-				<div className="meta-row">
-					<span>{frontend.entries.length} FE sources</span>
-					<span>{backend.entries.length} BE sources</span>
-					<span>{totalSourceRows} total rows</span>
-					<span>{typeof frontendFiles === 'number' && typeof backendFiles === 'number' ? `${totalFiles} indexed files` : 'File index pending'}</span>
-				</div>
-			</header>
+			<HeaderBar
+				metrics={{
+					feSources: frontend.entries.length,
+					feIndexed: frontendFiles,
+					beSources: backend.entries.length,
+					beIndexed: backendFiles,
+					lastScanned: lastScannedAt,
+					status: headerStatus
+				}}
+				mode={mode}
+				onModeChange={(nextMode) => setIsEditMode(nextMode === 'configure')}
+				isScanning={isHeaderScanning}
+			/>
+			<div className="meta-row">
+				<span>{frontend.entries.length} FE sources</span>
+				<span>{backend.entries.length} BE sources</span>
+				<span>{totalSourceRows} total rows</span>
+				<span>{typeof frontendFiles === 'number' && typeof backendFiles === 'number' ? `${totalFiles} indexed files` : 'File index pending'}</span>
+			</div>
 
 			{hasConfiguredPaths && !isEditMode ? (
 				<section className="input-section summary-view">
