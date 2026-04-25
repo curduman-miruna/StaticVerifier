@@ -52,6 +52,7 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 			uri: 'file:///src/a.ts',
 			method: 'GET',
 			path: '/api/users',
+			responseSchema: '{"id":"string","name":"string"}',
 			side: 'frontend' as const,
 			source: 'src/a.ts',
 			line: 10,
@@ -112,6 +113,7 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 	assert.match(html, /Discovered APIs/);
 	assert.match(html, /Open/);
 	assert.match(html, /endpoint/);
+	assert.match(html, /res · 2/);
 	assert.match(html, /FE only/);
 	assert.match(html, /BE only/);
 	assert.match(emptyHtml, /No APIs discovered yet/);

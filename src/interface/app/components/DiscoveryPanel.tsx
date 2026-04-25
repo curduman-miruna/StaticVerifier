@@ -1,5 +1,19 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronRight, ExternalLink, FileCode2, Search } from 'lucide-react';
+import type { ReactNode } from 'react';
+import {
+	AlertCircle,
+	ArrowDownToLine,
+	ArrowUpFromLine,
+	Braces,
+	Check,
+	ChevronDown,
+	ChevronRight,
+	Code2,
+	Copy,
+	ExternalLink,
+	FileCode2,
+	Search
+} from 'lucide-react';
 import { Button, Input } from './ui';
 import type { VerificationIssue } from '../../../shared/messages';
 
@@ -36,6 +50,8 @@ type MethodStyle = {
 };
 
 type SchemaShape = Record<string, string>;
+type SchemaView = 'fields' | 'ts' | 'json';
+type SchemaTab = 'request' | 'response';
 type DiscoverySummary = {
 	totalEndpoints: number;
 	totalFiles: number;
@@ -245,33 +261,169 @@ function summarizeDiscovery(groups: GroupedSource[], mismatchLookup: MismatchLoo
 	};
 }
 
-function SchemaChip({ label, schema }: { label: string; schema: SchemaShape }) {
-	const [open, setOpen] = useState(false);
+function typeClass(type: string): string {
+	const value = type.toLowerCase();
+	if (value === 'string') {
+		return 'discovery-type-string';
+	}
+	if (value === 'number' || value === 'integer') {
+		return 'discovery-type-number';
+	}
+	if (value === 'boolean') {
+		return 'discovery-type-boolean';
+	}
+	if (value.includes('[]') || value.startsWith('array')) {
+		return 'discovery-type-array';
+	}
+	if (value.includes('|')) {
+		return 'discovery-type-union';
+	}
+	if (value.includes('date') || value.includes('time')) {
+		return 'discovery-type-date';
+	}
+	return 'discovery-type-object';
+}
+
+function mockValue(type: string): string {
+	const value = type.toLowerCase();
+	if (value === 'string') {
+		return '"example"';
+	}
+	if (value === 'number' || value === 'integer') {
+		return '42';
+	}
+	if (value === 'boolean') {
+		return 'true';
+	}
+	if (value.includes('[]') || value.startsWith('array')) {
+		return '[]';
+	}
+	if (value === 'object' || value.startsWith('{')) {
+		return '{}';
+	}
+	if (value.includes('date') || value.includes('time')) {
+		return '"2026-04-25T00:00:00Z"';
+	}
+	if (value.includes('|')) {
+		return type.split('|')[0]?.trim().replace(/'/g, '"') ?? '"..."';
+	}
+	return '"..."';
+}
+
+function buildTsInterface(name: string, schema: SchemaShape): string {
+	const fields = Object.entries(schema).map(([key, type]) => `  ${key}: ${type};`).join('\n');
+	return `interface ${name} {\n${fields}\n}`;
+}
+
+function buildJsonExample(schema: SchemaShape): string {
+	const fields = Object.entries(schema).map(([key, type]) => `  "${key}": ${mockValue(type)}`).join(',\n');
+	return `{\n${fields}\n}`;
+}
+
+function buildInterfaceName(endpoint: DiscoveredApi, suffix: 'Request' | 'Response'): string {
+	const method = endpoint.method.charAt(0).toUpperCase() + endpoint.method.slice(1).toLowerCase();
+	const pathName = endpoint.path
+		.split('/')
+		.filter(Boolean)
+		.map((segment) =>
+			segment
+				.replace(/[:{}]/g, ' ')
+				.split(/[^A-Za-z0-9]+/)
+				.filter(Boolean)
+				.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+				.join('')
+		)
+		.join('');
+	return `${method}${pathName || 'Endpoint'}${suffix}`;
+}
+
+function CopyButton({ text }: { text: string }) {
+	const [copied, setCopied] = useState(false);
 	return (
-		<div className="discovery-schema">
-			<button
-				type="button"
-				onClick={(event) => {
-					event.stopPropagation();
-					setOpen((value) => !value);
-				}}
-				className="discovery-schema-chip"
-			>
-				{label}
-				<ChevronDown size={9} className={open ? 'discovery-chevron-open' : ''} />
-			</button>
-			{open ? (
-				<div className="discovery-schema-popover">
-					<div className="discovery-schema-grid">
-						{Object.entries(schema).map(([key, type]) => (
-							<div key={key} className="discovery-schema-row">
-								<span className="discovery-schema-key">{key}</span>
-								<span className="discovery-schema-type">{type}</span>
-							</div>
-						))}
-					</div>
+		<button
+			type="button"
+			className="discovery-schema-copy"
+			onClick={async (event) => {
+				event.stopPropagation();
+				try {
+					await navigator.clipboard.writeText(text);
+					setCopied(true);
+					window.setTimeout(() => setCopied(false), 1800);
+				} catch {
+					setCopied(false);
+				}
+			}}
+		>
+			{copied ? <Check size={10} /> : <Copy size={10} />}
+			{copied ? 'Copied' : 'Copy'}
+		</button>
+	);
+}
+
+function SchemaPanel({
+	schema,
+	label,
+	icon,
+	kind,
+	interfaceName
+}: {
+	schema: SchemaShape;
+	label: string;
+	icon: ReactNode;
+	kind: SchemaTab;
+	interfaceName: string;
+}) {
+	const [view, setView] = useState<SchemaView>('fields');
+	const entries = Object.entries(schema);
+	const tsText = buildTsInterface(interfaceName, schema);
+	const jsonText = buildJsonExample(schema);
+	const copyText = view === 'ts' ? tsText : view === 'json' ? jsonText : entries.map(([key, type]) => `${key}: ${type}`).join('\n');
+
+	return (
+		<div className={`discovery-schema-panel discovery-schema-panel-${kind}`}>
+			<div className="discovery-schema-panel-head">
+				<span className="discovery-schema-panel-title">
+					{icon}
+					{label}
+				</span>
+				<span className="discovery-schema-field-count">
+					{entries.length} field{entries.length !== 1 ? 's' : ''}
+				</span>
+				<div className="discovery-schema-view-toggle">
+					{(['fields', 'ts', 'json'] as SchemaView[]).map((value) => (
+						<button
+							key={value}
+							type="button"
+							className={`discovery-schema-view ${view === value ? 'is-active' : ''}`}
+							onClick={(event) => {
+								event.stopPropagation();
+								setView(value);
+							}}
+						>
+							{value === 'fields' ? <Braces size={9} /> : <Code2 size={9} />}
+							{value === 'fields' ? 'Fields' : value.toUpperCase()}
+						</button>
+					))}
 				</div>
-			) : null}
+				<CopyButton text={copyText} />
+			</div>
+			{view === 'fields' ? (
+				<div className="discovery-schema-fields">
+					{entries.map(([key, type]) => (
+						<div key={key} className="discovery-schema-field-row">
+							<code className="discovery-schema-key">{key}</code>
+							<span className="discovery-schema-optional" title="Optional">?</span>
+							<span className={`discovery-schema-type-chip ${typeClass(type)}`}>
+								{type}
+							</span>
+						</div>
+					))}
+				</div>
+			) : (
+				<pre className="discovery-schema-code">
+					{view === 'ts' ? tsText : jsonText}
+				</pre>
+			)}
 		</div>
 	);
 }
@@ -285,6 +437,8 @@ function EndpointRow({
 	mismatchLookup: MismatchLookup;
 	onReveal: (item: DiscoveredApi) => void;
 }) {
+	const [expanded, setExpanded] = useState(false);
+	const [activeTab, setActiveTab] = useState<SchemaTab>(endpoint.requestSchema ? 'request' : 'response');
 	const method = normalizeMethod(endpoint.method);
 	const mc = METHOD_STYLES[method];
 	const issues = getEndpointIssues(endpoint, mismatchLookup);
@@ -292,39 +446,112 @@ function EndpointRow({
 	const issueBadges = uniqueIssueBadges(issues);
 	const requestSchema = parseSchema(endpoint.requestSchema);
 	const responseSchema = parseSchema(endpoint.responseSchema);
+	const hasSchema = Boolean(requestSchema || responseSchema);
+	const selectedTab = requestSchema && responseSchema ? activeTab : requestSchema ? 'request' : 'response';
 
 	return (
-		<div className={`discovery-item ${mismatch ? 'is-mismatch' : ''}`}>
-			<div className="discovery-main">
-				<span className={`discovery-method ${mc.className}`}>
-					{mc.label}
-				</span>
-				<code className="discovery-path">{endpoint.path}</code>
-				<span className="discovery-location">{endpoint.side === 'frontend' ? 'FE' : 'BE'}</span>
-				{issueBadges.map((issue) => (
-					<span key={issue.label} className={`discovery-issue-tag ${issue.className}`} title={issue.title}>
-						<AlertCircle size={11} />
-						{issue.label}
-					</span>
-				))}
-			</div>
-			<div className="discovery-actions">
-				{requestSchema ? <SchemaChip label="req{}" schema={requestSchema} /> : null}
-				{responseSchema ? <SchemaChip label="res{}" schema={responseSchema} /> : null}
-				<span className="discovery-location">
-					:{endpoint.line}
-				</span>
-				<button
-					type="button"
-					className="sv-ui-button sv-ui-button-sm sv-ui-button-outline discovery-open"
-					title={`Open ${endpoint.source}:${endpoint.line}`}
-					onClick={() => onReveal(endpoint)}
+		<>
+			<div className={`discovery-item ${mismatch ? 'is-mismatch' : ''} ${expanded ? 'is-expanded' : ''}`}>
+				<div
+					className={`discovery-item-row ${hasSchema ? 'has-schema' : ''}`}
+					onClick={() => {
+						if (hasSchema) {
+							setExpanded((value) => !value);
+						}
+					}}
 				>
-					<ExternalLink size={10} />
-					Open
-				</button>
+					<div className="discovery-main">
+						<span className={`discovery-chevron ${hasSchema ? '' : 'is-hidden'}`}>
+							{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+						</span>
+						<span className={`discovery-method ${mc.className}`}>
+							{mc.label}
+						</span>
+						<code className="discovery-path">{endpoint.path}</code>
+						<span className="discovery-location">{endpoint.side === 'frontend' ? 'FE' : 'BE'}</span>
+						{issueBadges.map((issue) => (
+							<span key={issue.label} className={`discovery-issue-tag ${issue.className}`} title={issue.title}>
+								<AlertCircle size={11} />
+								{issue.label}
+							</span>
+						))}
+					</div>
+					<div className="discovery-actions">
+						{requestSchema ? (
+							<span className="discovery-schema-pill discovery-schema-pill-request">
+								<ArrowUpFromLine size={9} />
+								req &middot; {Object.keys(requestSchema).length}
+							</span>
+						) : null}
+						{responseSchema ? (
+							<span className="discovery-schema-pill discovery-schema-pill-response">
+								<ArrowDownToLine size={9} />
+								res &middot; {Object.keys(responseSchema).length}
+							</span>
+						) : null}
+						<span className="discovery-location">
+							:{endpoint.line}
+						</span>
+						<button
+							type="button"
+							className="sv-ui-button sv-ui-button-sm sv-ui-button-outline discovery-open"
+							title={`Open ${endpoint.source}:${endpoint.line}`}
+							onClick={(event) => {
+								event.stopPropagation();
+								onReveal(endpoint);
+							}}
+						>
+							<ExternalLink size={10} />
+							Open
+						</button>
+					</div>
+				</div>
 			</div>
-		</div>
+			{expanded && hasSchema ? (
+				<div className="discovery-schema-under">
+					{requestSchema && responseSchema ? (
+						<div className="discovery-schema-tabs">
+							{(['request', 'response'] as SchemaTab[]).map((tab) => {
+								const count = tab === 'request' ? Object.keys(requestSchema).length : Object.keys(responseSchema).length;
+								return (
+									<button
+										key={tab}
+										type="button"
+										className={`discovery-schema-tab discovery-schema-tab-${tab} ${selectedTab === tab ? 'is-active' : ''}`}
+										onClick={(event) => {
+											event.stopPropagation();
+											setActiveTab(tab);
+										}}
+									>
+										{tab === 'request' ? <ArrowUpFromLine size={10} /> : <ArrowDownToLine size={10} />}
+										{tab === 'request' ? 'Request Body' : 'Response Body'}
+										<span>{count}</span>
+									</button>
+								);
+							})}
+						</div>
+					) : null}
+					{selectedTab === 'request' && requestSchema ? (
+						<SchemaPanel
+							schema={requestSchema}
+							label="Request Body"
+							icon={<ArrowUpFromLine size={11} />}
+							kind="request"
+							interfaceName={buildInterfaceName(endpoint, 'Request')}
+						/>
+					) : null}
+					{selectedTab === 'response' && responseSchema ? (
+						<SchemaPanel
+							schema={responseSchema}
+							label="Response Body"
+							icon={<ArrowDownToLine size={11} />}
+							kind="response"
+							interfaceName={buildInterfaceName(endpoint, 'Response')}
+						/>
+					) : null}
+				</div>
+			) : null}
+		</>
 	);
 }
 
