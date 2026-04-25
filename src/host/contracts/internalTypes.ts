@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { VerificationIssue } from '../../shared/messages';
 
 export type EndpointContract = {
 	method: string;
@@ -29,4 +30,5 @@ export type VerificationSummary = {
 	backendOnly: number;
 	totalIssues: number;
 	comparedFrontend: number;
+	issues: VerificationIssue[];
 };

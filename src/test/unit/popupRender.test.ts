@@ -40,7 +40,7 @@ test('HeaderBar renders status, metrics and toggle labels', () => {
 		})
 	);
 
-	assert.match(html, /APIScope/);
+	assert.match(html, /StaticVerifier/);
 	assert.match(html, /Monitor/);
 	assert.match(html, /Configure/);
 	assert.match(html, /files indexed/);
@@ -52,6 +52,7 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 			uri: 'file:///src/a.ts',
 			method: 'GET',
 			path: '/api/users',
+			side: 'frontend' as const,
 			source: 'src/a.ts',
 			line: 10,
 			column: 2
@@ -60,6 +61,7 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 			uri: 'file:///src/b.ts',
 			method: 'POST',
 			path: '/api/users',
+			side: 'backend' as const,
 			source: 'src/b.ts',
 			line: 20,
 			column: 4
@@ -69,6 +71,30 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 	const html = renderToStaticMarkup(
 		createElement(DiscoveryPanel, {
 			items,
+			mismatches: [
+				{
+					file: 'src/a.ts',
+					line: 10,
+					column: 2,
+					severity: 'error' as const,
+					message: 'Missing backend endpoint for GET /api/users.',
+					kind: 'missing-backend' as const,
+					sourceSide: 'frontend' as const,
+					method: 'GET',
+					path: '/api/users'
+				},
+				{
+					file: 'src/b.ts',
+					line: 20,
+					column: 4,
+					severity: 'warning' as const,
+					message: 'Backend endpoint POST /api/users is not declared in frontend contract.',
+					kind: 'backend-only' as const,
+					sourceSide: 'backend' as const,
+					method: 'POST',
+					path: '/api/users'
+				}
+			],
 			isLoading: false,
 			onRefresh: () => undefined,
 			onReveal: () => undefined
@@ -86,6 +112,8 @@ test('DiscoveryPanel renders grouped endpoints and empty state', () => {
 	assert.match(html, /Discovered APIs/);
 	assert.match(html, /Open/);
 	assert.match(html, /endpoint/);
+	assert.match(html, /FE only/);
+	assert.match(html, /BE only/);
 	assert.match(emptyHtml, /No APIs discovered yet/);
 });
 
@@ -140,6 +168,10 @@ test('VerificationView renders mismatch state and toMismatch keeps schema diffs'
 		column: 2,
 		severity: 'warning' as const,
 		message: 'Schema mismatch for GET /api/users',
+		kind: 'request-schema-mismatch' as const,
+		sourceSide: 'frontend' as const,
+		method: 'GET',
+		path: '/api/users',
 		schemaDiffs: [
 			{
 				scope: 'request' as const,

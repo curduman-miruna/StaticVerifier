@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Zap } from 'lucide-react';
-import { Badge, Button, Card } from './ui';
+import { Badge } from './ui';
 import { DiscoveryPanel } from './DiscoveryPanel';
 import { VerificationView } from './VerificationView';
+import type { VerificationIssue } from '../../../shared/messages';
 
 type MonitorPanelProps = {
 	metrics: {
@@ -11,19 +12,14 @@ type MonitorPanelProps = {
 		feIndexed: number;
 		beIndexed: number;
 	};
-	mismatches: Array<{
-		file: string;
-		line: number;
-		column: number;
-		severity: 'error' | 'warning' | 'info';
-		message: string;
-	}>;
+	mismatches: VerificationIssue[];
 	discoveredApis: Array<{
 		uri: string;
 		method: string;
 		path: string;
 		requestSchema?: string;
 		responseSchema?: string;
+		side: 'frontend' | 'backend';
 		source: string;
 		line: number;
 		column: number;
@@ -70,42 +66,46 @@ export function MonitorPanel({
 		<section className="monitor-panel">
 			<div className="monitor-summary">
 				<div className="monitor-stat-row">
-					<Card className="monitor-stat-pill">
+					<div className="sv-ui-card monitor-stat-pill">
 						<Zap size={13} />
 						<span><strong>{metrics.totalEndpoints}</strong> endpoints</span>
-					</Card>
-					<Card className={`monitor-stat-pill ${metrics.mismatchCount > 0 ? 'is-warn' : 'is-ok'}`}>
+					</div>
+					<div className={`sv-ui-card monitor-stat-pill ${metrics.mismatchCount > 0 ? 'is-warn' : 'is-ok'}`}>
 						{metrics.mismatchCount > 0 ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
 						<span>
 							<strong>{metrics.mismatchCount}</strong> mismatch{metrics.mismatchCount !== 1 ? 'es' : ''}
 						</span>
-					</Card>
-					<Card className="monitor-stat-pill">
+					</div>
+					<div className="sv-ui-card monitor-stat-pill">
 						<span>FE <strong>{metrics.feIndexed}</strong> files</span>
-						<span className="monitor-dot">·</span>
+						<span className="monitor-dot">&middot;</span>
 						<span>BE <strong>{metrics.beIndexed}</strong> files</span>
-					</Card>
+					</div>
 				</div>
-				<Button onClick={handleRescan} disabled={rescanning} variant="outline" size="sm" className="monitor-rescan">
+				<button
+					type="button"
+					onClick={handleRescan}
+					disabled={rescanning}
+					className="sv-ui-button sv-ui-button-sm sv-ui-button-outline monitor-rescan"
+				>
 					{rescanning ? <Loader2 size={13} className="sv-spin" /> : <RefreshCw size={13} />}
 					{rescanning ? 'Scanning...' : 'Rescan'}
-				</Button>
+				</button>
 			</div>
 
 			<div className="monitor-tabs">
 				{tabs.map((tab) => (
-					<Button
+					<button
 						key={tab.key}
+						type="button"
 						onClick={() => setActiveTab(tab.key)}
-						variant="ghost"
-						size="sm"
-						className={`monitor-tab ${activeTab === tab.key ? 'is-active' : ''}`}
+						className={`sv-ui-button sv-ui-button-sm sv-ui-button-ghost monitor-tab ${activeTab === tab.key ? 'is-active' : ''}`}
 					>
 						{tab.label}
 						<Badge variant={tab.alert && tab.count > 0 ? 'warning' : activeTab === tab.key ? 'info' : 'neutral'}>
 							{tab.count}
 						</Badge>
-					</Button>
+					</button>
 				))}
 			</div>
 
@@ -115,6 +115,7 @@ export function MonitorPanel({
 				) : (
 					<DiscoveryPanel
 						items={discoveredApis}
+						mismatches={mismatches}
 						isLoading={isDiscovering}
 						onRefresh={onRefreshDiscovery}
 						onReveal={onRevealDiscoveredApi}

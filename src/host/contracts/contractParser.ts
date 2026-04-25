@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ContractSide } from '../../shared/contracts';
+import { extractBackendEndpointsFromCode } from './backendApiExtractor';
 import { extractFrontendEndpointsFromCode, type FrontendDiscoveryOptions } from './frontendApiExtractor';
 import type { EndpointContract, ParsedContractFile } from './internalTypes';
 
@@ -27,6 +28,10 @@ export function parseContractText(
 				)
 			]);
 			return undefined;
+		}
+		const extractedEndpoints = extractBackendEndpointsFromCode(text);
+		if (extractedEndpoints.length > 0) {
+			return { uri, text, endpoints: extractedEndpoints };
 		}
 		collection.set(uri, [parseJsonErrorToDiagnostic(text, error)]);
 		return undefined;

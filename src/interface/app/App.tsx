@@ -6,6 +6,7 @@ import { Badge, Button, Card } from './components/ui';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
 import { ContractInput, ContractSourceEntry, InitialState } from './types/messages';
+import type { VerificationIssue } from '../../shared/messages';
 
 function createEntry(type: ContractSourceEntry['type'], value: string): ContractSourceEntry {
 	return { type, value };
@@ -53,19 +54,14 @@ export default function App() {
 	const [sourceCounts, setSourceCounts] = useState<Record<string, number>>({});
 	const [countStatus, setCountStatus] = useState<'idle' | 'loading' | 'done'>('idle');
 	const [isDirty, setIsDirty] = useState(false);
-	const [verificationIssues, setVerificationIssues] = useState<Array<{
-		file: string;
-		line: number;
-		column: number;
-		severity: 'error' | 'warning' | 'info';
-		message: string;
-	}>>([]);
+	const [verificationIssues, setVerificationIssues] = useState<VerificationIssue[]>([]);
 	const [discoveredApis, setDiscoveredApis] = useState<Array<{
 		uri: string;
 		method: string;
 		path: string;
 		requestSchema?: string;
 		responseSchema?: string;
+		side: 'frontend' | 'backend';
 		source: string;
 		line: number;
 		column: number;

@@ -1,17 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Filter, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { Badge, Button, Card } from './ui';
+import { Badge } from './ui';
 import { SchemaDiffView } from './SchemaDiffView';
-import type { SchemaDiff } from './SchemaDiffView';
+import type { SchemaDiff, VerificationIssue, VerificationIssueKind } from '../../../shared/messages';
 
-type Issue = {
-	file: string;
-	line: number;
-	column: number;
-	severity: 'error' | 'warning' | 'info';
-	message: string;
-	schemaDiffs?: SchemaDiff[];
-};
+type Issue = VerificationIssue;
 
 type MismatchType = 'missing-in-be' | 'missing-in-fe' | 'schema-mismatch';
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
@@ -57,6 +50,16 @@ export function inferType(message: string): MismatchType {
 		return 'missing-in-be';
 	}
 	if (lower.includes('not declared in frontend')) {
+		return 'missing-in-fe';
+	}
+	return 'schema-mismatch';
+}
+
+function kindToMismatchType(kind: VerificationIssueKind): MismatchType {
+	if (kind === 'missing-backend') {
+		return 'missing-in-be';
+	}
+	if (kind === 'backend-only') {
 		return 'missing-in-fe';
 	}
 	return 'schema-mismatch';
@@ -108,16 +111,17 @@ export function extractSchemaDiffs(message: string): SchemaDiff[] | undefined {
 }
 
 export function toMismatch(issue: Issue, index: number): ParsedMismatch {
-	const parsed = parseMethodPath(issue.message);
+	const parsed = issue.method && issue.path ? { method: issue.method as HttpMethod, path: issue.path } : parseMethodPath(issue.message);
 	const schemaDiffs = issue.schemaDiffs ?? extractSchemaDiffs(issue.message);
 	return {
 		id: `${issue.file}:${issue.line}:${issue.column}:${index}`,
-		type: inferType(issue.message),
+		type: kindToMismatchType(issue.kind),
 		method: parsed.method,
 		path: parsed.path,
 		description: issue.message,
 		severity: inferSeverity(issue),
-		feSource: `${issue.file}:${issue.line}:${issue.column}`,
+		feSource: issue.sourceSide === 'frontend' ? `${issue.file}:${issue.line}:${issue.column}` : undefined,
+		beSource: issue.sourceSide === 'backend' ? `${issue.file}:${issue.line}:${issue.column}` : undefined,
 		schemaDiffs
 	};
 }
@@ -126,17 +130,34 @@ function MismatchCard({ mismatch }: { mismatch: ParsedMismatch }) {
 	const [expanded, setExpanded] = useState(false);
 	const typeCfg = mismatchTypeConfig[mismatch.type];
 	const sevCfg = severityConfig[mismatch.severity];
+	const severityDot = mismatch.severity === 'high' ? 'sv-mm-dot-high' : mismatch.severity === 'medium' ? 'sv-mm-dot-medium' : 'sv-mm-dot-low';
+	const typeClass = mismatch.type === 'missing-in-be'
+		? 'sv-mm-type-error'
+		: mismatch.type === 'schema-mismatch'
+			? 'sv-mm-type-warn'
+			: 'sv-mm-type-neutral';
 
 	return (
-		<Card className="sv-mm-card">
+		<div className="sv-ui-card sv-mm-card">
 			<div className="sv-mm-head" onClick={() => setExpanded((value) => !value)}>
-				<span className={`sv-mm-dot ${sevCfg.dot}`} />
+				<span className={`sv-mm-dot ${severityDot}`} />
 				<div className="sv-mm-main">
 					<div className="sv-mm-row">
-						<Badge className={`sv-mm-type ${typeCfg.badge}`}>{typeCfg.label}</Badge>
-						<Badge className={`sv-mm-method ${methodClass[mismatch.method]}`}>{mismatch.method}</Badge>
+						<Badge className={`sv-mm-type ${typeClass}`}>
+							{typeCfg.label}
+						</Badge>
+						<Badge className={`sv-mm-method ${methodClass[mismatch.method]}`}>
+							{mismatch.method}
+						</Badge>
 						<code className="sv-mm-path">{mismatch.path}</code>
-						<span className="sv-mm-severity">{sevCfg.label}</span>
+						{mismatch.schemaDiffs && mismatch.schemaDiffs.length > 0 ? (
+							<span className="sv-ui-badge sv-ui-badge-neutral">
+								{mismatch.schemaDiffs.reduce((sum, diff) => sum + diff.fields.length, 0)} fields diffed
+							</span>
+						) : null}
+						<span className="sv-mm-severity">
+							{sevCfg.label}
+						</span>
 					</div>
 					<p className="sv-mm-desc">{mismatch.description}</p>
 				</div>
@@ -160,7 +181,7 @@ function MismatchCard({ mismatch }: { mismatch: ParsedMismatch }) {
 					) : null}
 				</div>
 			) : null}
-		</Card>
+		</div>
 	);
 }
 
@@ -186,23 +207,29 @@ export function VerificationView({ mismatches }: { mismatches: Issue[] }) {
 				) : (
 					<div className="sv-verify-warn">
 						<ShieldAlert size={15} />
-						<span><strong>{parsed.length}</strong> mismatch{parsed.length !== 1 ? 'es' : ''} detected</span>
+						<span>
+							<strong>{parsed.length}</strong> mismatch{parsed.length !== 1 ? 'es' : ''} detected
+						</span>
+						<span>
+							{counts['missing-in-be']} missing in BE &middot; {counts['schema-mismatch']} schema issues &middot; {counts['missing-in-fe']} extra in BE
+						</span>
 					</div>
 				)}
 
 				<div className="sv-verify-filters">
 					<Filter size={11} />
 					{(['all', 'missing-in-be', 'schema-mismatch', 'missing-in-fe'] as FilterType[]).map((value) => (
-						<Button
+						<button
 							key={value}
-							size="sm"
-							variant="ghost"
-							className={`sv-verify-filter ${filter === value ? 'is-active' : ''}`}
+							type="button"
+							className={`sv-ui-button sv-ui-button-sm sv-ui-button-ghost sv-verify-filter ${filter === value ? 'is-active' : ''}`}
 							onClick={() => setFilter(value)}
 						>
 							{value === 'all' ? 'All' : value === 'missing-in-be' ? 'Missing in BE' : value === 'missing-in-fe' ? 'Extra in BE' : 'Schema'}
-							<Badge>{counts[value]}</Badge>
-						</Button>
+							<Badge>
+								{counts[value]}
+							</Badge>
+						</button>
 					))}
 				</div>
 			</div>

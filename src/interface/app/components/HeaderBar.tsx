@@ -77,7 +77,7 @@ export function HeaderBar({ metrics, mode, onModeChange, isScanning }: HeaderBar
 						<Radio size={11} />
 					</div>
 					<span className="sv-header-brand-name">
-						APIScope
+						StaticVerifier
 					</span>
 				</div>
 

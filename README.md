@@ -33,9 +33,9 @@ Response model inference:
 
 ## Commands
 
-- `StaticVerifier: Open Popup Mockup`
+- `StaticVerifier: Open Interface`
 - `StaticVerifier: Verify Contracts`
-- `StaticVerifier: Hello World` (scaffold command, optional)
+- `StaticVerifier: Configure Verification Mode`
 
 ## Contract Format
 
@@ -104,5 +104,6 @@ npm test
 
 ## Notes
 
-- GitHub `blob` links are normalized to raw URLs automatically.
+- GitHub `blob` file links are normalized to raw URLs automatically.
+- GitHub contract sources support file URLs only (`github.com/.../blob/...` or `raw.githubusercontent.com/...`).
 - GitHub source counting uses the GitHub API and may return `0` when the repo is private or rate-limited.
