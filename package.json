@@ -30,7 +30,7 @@
       },
       {
         "command": "staticverifier.openPopupMockup",
-        "title": "StaticVerifier: Open Popup Mockup"
+        "title": "StaticVerifier: Open Interface"
       },
       {
         "command": "staticverifier.configureVerificationMode",
@@ -282,7 +282,7 @@
     "watch:tailwind": "npm run tailwind:build -- --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "npm run check-types && npm run lint && npm run tailwind:build && node esbuild.js --production",
-    "tailwind:build": "tailwindcss -c tailwind.config.cjs -i ./src/popup/styles/tailwind.css -o ./src/popup/styles/tailwind.generated.css",
+    "tailwind:build": "tailwindcss -c tailwind.config.cjs -i ./src/interface/styles/tailwind.css -o ./src/interface/styles/tailwind.generated.css",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "test:unit": "npm run compile-tests && node --test \"out/test/unit/**/*.test.js\"",

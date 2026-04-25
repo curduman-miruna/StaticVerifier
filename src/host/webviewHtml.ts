@@ -6,8 +6,8 @@ export function getPopupWebviewHtml(
 	extensionUri: vscode.Uri,
 	initialState: InitialState
 ): string {
-	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'popup.js'));
-	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'popup.css'));
+	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'interface.js'));
+	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'interface.css'));
 	const nonce = createNonce();
 	const encodedState = JSON.stringify(initialState).replace(/</g, '\\u003c');
 

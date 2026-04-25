@@ -185,7 +185,9 @@ function buildDiagnostic(
 	message: string,
 	severity: vscode.DiagnosticSeverity
 ): vscode.Diagnostic {
-	return new vscode.Diagnostic(findEndpointRange(fileText, endpoint), message, severity);
+	const diagnostic = new vscode.Diagnostic(findEndpointRange(fileText, endpoint), message, severity);
+	diagnostic.source = 'StaticVerifier';
+	return diagnostic;
 }
 
 function pushDiagnostic(

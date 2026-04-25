@@ -69,19 +69,25 @@ function buildVerificationIssues(collection: vscode.DiagnosticCollection): Verif
 
 export function activate(context: vscode.ExtensionContext) {
 	const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_COLLECTION);
+	const revealProblemsIfNeeded = async (issueCount: number) => {
+		if (issueCount > 0) {
+			await vscode.commands.executeCommand('workbench.actions.view.problems');
+		}
+	};
 
 	const helloWorld = vscode.commands.registerCommand('staticverifier.helloWorld', () => {
 		vscode.window.showInformationMessage('Hello World from StaticVerifier!');
 	});
 
 	const verifyContracts = vscode.commands.registerCommand('staticverifier.verifyContracts', async () => {
-		await runContractVerification(diagnostics, true);
+		const summary = await runContractVerification(diagnostics, true);
+		await revealProblemsIfNeeded(summary.totalIssues);
 	});
 
 	const openPopupMockup = vscode.commands.registerCommand('staticverifier.openPopupMockup', () => {
 		const panel = vscode.window.createWebviewPanel(
 			'staticVerifierPopupMockup',
-			'StaticVerifier',
+			'StaticVerifier Interface',
 			vscode.ViewColumn.One,
 			{
 				enableScripts: true,
@@ -169,6 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (message.type === 'verifyContracts') {
 				const summary = await runContractVerification(diagnostics, false);
 				const summaryText = formatVerificationSummary(summary);
+				await revealProblemsIfNeeded(summary.totalIssues);
 				await panel.webview.postMessage({
 					type: 'actionResult',
 					text: summaryText
@@ -242,7 +249,7 @@ export function activate(context: vscode.ExtensionContext) {
 	};
 	updateStatusBar();
 	statusBarIcon.text = '$(list-unordered)';
-	statusBarIcon.tooltip = 'Open StaticVerifier panel';
+	statusBarIcon.tooltip = 'Open StaticVerifier interface';
 	statusBarIcon.command = 'staticverifier.openPopupMockup';
 	statusBarMode.command = 'staticverifier.configureVerificationMode';
 	statusBarIcon.show();

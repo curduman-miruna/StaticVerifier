@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod } from '../../popup/app/components/DiscoveryPanel';
+import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod } from '../../interface/app/components/DiscoveryPanel';
 
 type ApiItem = {
 	uri: string;

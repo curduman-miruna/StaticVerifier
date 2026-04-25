@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatRelativeTime, resolveHeaderStatus } from '../../popup/app/components/HeaderBar';
+import { formatRelativeTime, resolveHeaderStatus } from '../../interface/app/components/HeaderBar';
 
 test('resolveHeaderStatus returns scanning when active scan is running', () => {
 	assert.equal(resolveHeaderStatus('ready', true), 'scanning');
