@@ -20,6 +20,18 @@ export type HostMessage = {
 		message: string;
 	}>;
 } | {
+	type: 'discoveredApis';
+	items: Array<{
+		uri: string;
+		method: string;
+		path: string;
+		requestSchema?: string;
+		responseSchema?: string;
+		source: string;
+		line: number;
+		column: number;
+	}>;
+} | {
 	type: 'browseResult';
 	side: ContractSide;
 	index: number;
@@ -51,4 +63,13 @@ export type PopupMessage =
 	}
 	| {
 		type: 'verifyContracts';
+	}
+	| {
+		type: 'discoverApis';
+	}
+	| {
+		type: 'revealDiscoveredApi';
+		uri: string;
+		line: number;
+		column: number;
 	};

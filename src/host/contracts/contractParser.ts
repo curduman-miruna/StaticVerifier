@@ -1,27 +1,28 @@
 import * as vscode from 'vscode';
 import type { ContractSide } from '../../shared/contracts';
-import { extractFrontendEndpointsFromCode } from './frontendApiExtractor';
+import { extractFrontendEndpointsFromCode, type FrontendDiscoveryOptions } from './frontendApiExtractor';
 import type { EndpointContract, ParsedContractFile } from './internalTypes';
 
 export function parseContractText(
 	text: string,
 	uri: vscode.Uri,
 	side: ContractSide,
-	collection: vscode.DiagnosticCollection
+	collection: vscode.DiagnosticCollection,
+	frontendDiscovery?: FrontendDiscoveryOptions
 ): ParsedContractFile | undefined {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
 	} catch (error) {
 		if (side === 'frontend') {
-			const extractedEndpoints = extractFrontendEndpointsFromCode(text);
+			const extractedEndpoints = extractFrontendEndpointsFromCode(text, frontendDiscovery);
 			if (extractedEndpoints.length > 0) {
 				return { uri, text, endpoints: extractedEndpoints };
 			}
 			collection.set(uri, [
 				new vscode.Diagnostic(
 					new vscode.Range(0, 0, 0, 1),
-					'Frontend source must be a contract JSON file or code containing fetch-style API calls.',
+					'Frontend source must be a contract JSON file or code containing discoverable HTTP API calls.',
 					vscode.DiagnosticSeverity.Error
 				)
 			]);

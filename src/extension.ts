@@ -6,6 +6,7 @@ import {
 	saveContractInput
 } from './host/config/contractsConfig';
 import { browseLocalEntry } from './host/contracts/browseLocalEntry';
+import { loadConfiguredContracts } from './host/contracts/loadContracts';
 import { computeSourceCounts, validateBeforeSave } from './host/contracts/sourceValidation';
 import { findTrackedLocalContractUris } from './host/contracts/findTrackedLocalContractUris';
 import { formatVerificationSummary, runContractVerification } from './host/verification/verifier';
@@ -177,6 +178,53 @@ export function activate(context: vscode.ExtensionContext) {
 					summaryText,
 					issues: buildVerificationIssues(diagnostics)
 				});
+				return;
+			}
+
+			if (message.type === 'discoverApis') {
+				const tempDiagnostics = vscode.languages.createDiagnosticCollection(`${DIAGNOSTIC_COLLECTION}-discovery-temp`);
+				try {
+					const frontendFiles = await loadConfiguredContracts('frontend', tempDiagnostics);
+					const items = frontendFiles.flatMap((file) =>
+						file.endpoints.map((endpoint) => ({
+							uri: file.uri.toString(),
+							method: endpoint.method.toUpperCase(),
+							path: endpoint.path,
+							requestSchema: endpoint.requestSchema,
+							responseSchema: endpoint.responseSchema,
+							source: file.uri.scheme === 'file'
+								? (vscode.workspace.asRelativePath(file.uri, false) || file.uri.fsPath)
+								: file.uri.toString(),
+							line: endpoint.sourceLine ?? 1,
+							column: endpoint.sourceColumn ?? 1
+						}))
+					);
+					await panel.webview.postMessage({
+						type: 'discoveredApis',
+						items
+					});
+				} finally {
+					tempDiagnostics.dispose();
+				}
+				return;
+			}
+
+			if (message.type === 'revealDiscoveredApi') {
+				try {
+					const uri = vscode.Uri.parse(message.uri);
+					const document = await vscode.workspace.openTextDocument(uri);
+					const editor = await vscode.window.showTextDocument(document, {
+						preview: false,
+						preserveFocus: false
+					});
+					const line = Math.max(0, message.line - 1);
+					const column = Math.max(0, message.column - 1);
+					const position = new vscode.Position(line, column);
+					editor.selection = new vscode.Selection(position, position);
+					editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+				} catch {
+					vscode.window.showWarningMessage('StaticVerifier could not open the source location for this discovered API.');
+				}
 			}
 		});
 

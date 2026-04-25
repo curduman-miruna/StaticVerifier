@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { extractFrontendEndpointsFromCode } from '../../host/contracts/frontendApiExtractor';
 
+function stripLocation<T extends { sourceLine?: number; sourceColumn?: number }>(item: T): Omit<T, 'sourceLine' | 'sourceColumn'> {
+	const { sourceLine: _line, sourceColumn: _column, ...rest } = item;
+	return rest;
+}
+
+function assertHasLocation(item: { sourceLine?: number; sourceColumn?: number }): void {
+	assert.equal(typeof item.sourceLine, 'number');
+	assert.equal(typeof item.sourceColumn, 'number');
+	assert.ok((item.sourceLine ?? 0) > 0);
+	assert.ok((item.sourceColumn ?? 0) > 0);
+}
+
 test('extracts fetch and axios endpoints with inferred methods', () => {
 	const source = `
 		async function loadUser(): Promise<UserResponse> {
@@ -13,8 +25,9 @@ test('extracts fetch and axios endpoints with inferred methods', () => {
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
-	assert.deepEqual(endpoints, [
+	assert.deepEqual(endpoints.map(stripLocation), [
 		{ method: 'GET', path: '/api/user/42', responseSchema: 'UserResponse' },
 		{ method: 'POST', path: '/api/user', responseSchema: 'UserResponse' },
 		{ method: 'GET', path: '/api/users', responseSchema: 'UserResponse' }
@@ -31,9 +44,10 @@ test('prefers explicit cast response type and ignores invalid paths', () => {
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
 	assert.equal(endpoints.length, 1);
-	assert.deepEqual(endpoints[0], {
+	assert.deepEqual(stripLocation(endpoints[0]), {
 		method: 'PATCH',
 		path: '/api/orders',
 		responseSchema: 'ApiResult<Order>'
@@ -49,9 +63,10 @@ test('deduplicates identical API calls', () => {
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
 	assert.equal(endpoints.length, 1);
-	assert.deepEqual(endpoints[0], {
+	assert.deepEqual(stripLocation(endpoints[0]), {
 		method: 'GET',
 		path: '/api/users',
 		responseSchema: 'User[]'
@@ -70,10 +85,11 @@ test('ignores unknown and any return types as response schema', () => {
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
 	assert.equal(endpoints.length, 2);
-	assert.deepEqual(endpoints[0], { method: 'GET', path: '/api/unknown', responseSchema: undefined });
-	assert.deepEqual(endpoints[1], { method: 'GET', path: '/api/any', responseSchema: undefined });
+	assert.deepEqual(stripLocation(endpoints[0]), { method: 'GET', path: '/api/unknown', responseSchema: undefined });
+	assert.deepEqual(stripLocation(endpoints[1]), { method: 'GET', path: '/api/any', responseSchema: undefined });
 });
 
 test('extracts multiple client methods and normalizes method casing', () => {
@@ -86,8 +102,9 @@ test('extracts multiple client methods and normalizes method casing', () => {
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
-	assert.deepEqual(endpoints, [
+	assert.deepEqual(endpoints.map(stripLocation), [
 		{ method: 'DELETE', path: '/api/items/1', responseSchema: 'ResultModel' },
 		{ method: 'OPTIONS', path: '/api/items', responseSchema: 'ResultModel' },
 		{ method: 'PATCH', path: '/api/items/2', responseSchema: 'ResultModel' }
@@ -105,8 +122,51 @@ test('keeps endpoints when method/path match but response schema differs', () =>
 	`;
 
 	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
 
 	assert.equal(endpoints.length, 2);
-	assert.deepEqual(endpoints[0], { method: 'GET', path: '/api/user', responseSchema: 'UserA' });
-	assert.deepEqual(endpoints[1], { method: 'GET', path: '/api/user', responseSchema: 'UserB' });
+	assert.deepEqual(stripLocation(endpoints[0]), { method: 'GET', path: '/api/user', responseSchema: 'UserA' });
+	assert.deepEqual(stripLocation(endpoints[1]), { method: 'GET', path: '/api/user', responseSchema: 'UserB' });
+});
+
+test('supports configurable fetch function names', () => {
+	const source = `
+		async function load(): Promise<CustomResponse> {
+			await request('/api/custom', { method: 'POST' });
+			await fetch('/api/default');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source, {
+		fetchFunctions: ['request']
+	});
+	endpoints.forEach(assertHasLocation);
+
+	assert.equal(endpoints.length, 1);
+	assert.deepEqual(stripLocation(endpoints[0]), {
+		method: 'POST',
+		path: '/api/custom',
+		responseSchema: 'CustomResponse'
+	});
+});
+
+test('supports configurable method-client signatures', () => {
+	const source = `
+		async function run(): Promise<ResultDto> {
+			await sdk.send('/api/submit');
+			await sdk.query('/api/list');
+			await sdk.delete('/api/remove');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source, {
+		methodClients: [
+			{ client: 'sdk', methods: ['send', 'query'] }
+		]
+	});
+	endpoints.forEach(assertHasLocation);
+
+	assert.equal(endpoints.length, 2);
+	assert.deepEqual(stripLocation(endpoints[0]), { method: 'SEND', path: '/api/submit', responseSchema: 'ResultDto' });
+	assert.deepEqual(stripLocation(endpoints[1]), { method: 'QUERY', path: '/api/list', responseSchema: 'ResultDto' });
 });

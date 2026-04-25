@@ -5,6 +5,7 @@ import type {
 	ContractSourceEntry,
 	ContractSourceType
 } from '../../shared/contracts';
+import type { FrontendDiscoveryMethodClient, FrontendDiscoveryOptions } from '../contracts/frontendApiExtractor';
 
 type ContractSettingKeys = {
 	sources: 'frontendSources' | 'backendSources';
@@ -15,6 +16,15 @@ type ContractSettingKeys = {
 	legacyGithub: 'frontendContractGitHubUrl' | 'backendContractGitHubUrl';
 	defaultPath: string;
 };
+
+const DEFAULT_FRONTEND_DISCOVERY_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+const DEFAULT_FRONTEND_DISCOVERY_CLIENTS: FrontendDiscoveryMethodClient[] = [
+	{ client: 'axios', methods: DEFAULT_FRONTEND_DISCOVERY_METHODS },
+	{ client: 'api', methods: DEFAULT_FRONTEND_DISCOVERY_METHODS },
+	{ client: 'client', methods: DEFAULT_FRONTEND_DISCOVERY_METHODS },
+	{ client: 'http', methods: DEFAULT_FRONTEND_DISCOVERY_METHODS },
+	{ client: 'ky', methods: DEFAULT_FRONTEND_DISCOVERY_METHODS }
+];
 
 export function getContractInputFromConfig(
 	config: vscode.WorkspaceConfiguration,
@@ -125,6 +135,39 @@ export async function saveContractInput(
 	await config.update(keys.github, githubUrls, vscode.ConfigurationTarget.Workspace);
 	await config.update(keys.legacyPath, localPaths[0] ?? '', vscode.ConfigurationTarget.Workspace);
 	await config.update(keys.legacyGithub, githubUrls[0] ?? '', vscode.ConfigurationTarget.Workspace);
+}
+
+export function getFrontendDiscoveryOptions(
+	config: vscode.WorkspaceConfiguration
+): FrontendDiscoveryOptions {
+	const fetchFunctions = (config.get<string[]>('frontendDiscoveryFetchFunctions', ['fetch', 'fetchJson']) ?? [])
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0);
+
+	const rawClientSignatures = config.get<Array<{ client?: string; methods?: unknown }>>(
+		'frontendDiscoveryClientSignatures',
+		DEFAULT_FRONTEND_DISCOVERY_CLIENTS
+	) ?? [];
+	const methodClients = rawClientSignatures
+		.map((entry): FrontendDiscoveryMethodClient | undefined => {
+			const client = typeof entry.client === 'string' ? entry.client.trim() : '';
+			const methods = Array.isArray(entry.methods)
+				? entry.methods
+					.filter((method): method is string => typeof method === 'string')
+					.map((method) => method.trim().toLowerCase())
+					.filter((method) => method.length > 0)
+				: [];
+			if (!client || methods.length === 0) {
+				return undefined;
+			}
+			return { client, methods };
+		})
+		.filter((entry): entry is FrontendDiscoveryMethodClient => Boolean(entry));
+
+	return {
+		fetchFunctions,
+		methodClients: methodClients.length > 0 ? methodClients : DEFAULT_FRONTEND_DISCOVERY_CLIENTS
+	};
 }
 
 function getContractSettingKeys(side: ContractSide): ContractSettingKeys {

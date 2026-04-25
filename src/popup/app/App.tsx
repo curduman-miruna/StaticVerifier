@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ContractPathForm } from './components/ContractPathForm';
+import { DiscoveryPanel } from './components/DiscoveryPanel';
+import { HeaderBar } from './components/HeaderBar';
 import { OutputPanel } from './components/OutputPanel';
+import { Badge, Button, Card } from './components/ui';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
 import { ContractInput, ContractSourceEntry, InitialState } from './types/messages';
@@ -58,6 +61,19 @@ export default function App() {
 		severity: 'error' | 'warning' | 'info';
 		message: string;
 	}>>([]);
+	const [discoveredApis, setDiscoveredApis] = useState<Array<{
+		uri: string;
+		method: string;
+		path: string;
+		requestSchema?: string;
+		responseSchema?: string;
+		source: string;
+		line: number;
+		column: number;
+	}>>([]);
+	const [isDiscoveringApis, setIsDiscoveringApis] = useState(false);
+	const [resultTab, setResultTab] = useState<'verification' | 'discovery'>('verification');
+	const [lastScannedAt, setLastScannedAt] = useState<Date | undefined>(undefined);
 
 	useHostMessage((message) => {
 		if (message.type === 'actionResult') {
@@ -82,6 +98,14 @@ export default function App() {
 		if (message.type === 'verificationReport') {
 			setOutput(message.summaryText);
 			setVerificationIssues(message.issues);
+			setLastScannedAt(new Date());
+			return;
+		}
+
+		if (message.type === 'discoveredApis') {
+			setDiscoveredApis(message.items);
+			setIsDiscoveringApis(false);
+			setLastScannedAt(new Date());
 			return;
 		}
 
@@ -92,6 +116,7 @@ export default function App() {
 			}
 			setSourceCounts(next);
 			setCountStatus('done');
+			setLastScannedAt(new Date());
 			return;
 		}
 
@@ -147,6 +172,24 @@ export default function App() {
 		postToHost({ type: 'verifyContracts' });
 	};
 
+	const discoverApis = () => {
+		setIsDiscoveringApis(true);
+		postToHost({ type: 'discoverApis' });
+	};
+
+	const revealDiscoveredApi = (item: {
+		uri: string;
+		line: number;
+		column: number;
+	}) => {
+		postToHost({
+			type: 'revealDiscoveredApi',
+			uri: item.uri,
+			line: item.line,
+			column: item.column
+		});
+	};
+
 	const handlePrimaryEditAction = () => {
 		if (!isDirty && countStatus === 'done' && hasConfiguredPaths && !isSaving) {
 			setIsEditMode(false);
@@ -158,6 +201,7 @@ export default function App() {
 	useEffect(() => {
 		if (hasConfiguredPaths && !isEditMode) {
 			verifyContracts();
+			discoverApis();
 			setCountStatus('loading');
 			postToHost({ type: 'refreshSourceCounts' });
 		}
@@ -167,7 +211,6 @@ export default function App() {
 		return sourceCounts[`${side}|${entry.type}|${entry.value.trim()}`];
 	};
 
-	const totalSourceRows = frontend.entries.length + backend.entries.length;
 	const getSideFileTotal = (side: 'frontend' | 'backend', input: ContractInput): number | undefined => {
 		let hasAny = false;
 		let total = 0;
@@ -183,119 +226,140 @@ export default function App() {
 
 	const frontendFiles = getSideFileTotal('frontend', frontend);
 	const backendFiles = getSideFileTotal('backend', backend);
-	const totalFiles = (frontendFiles ?? 0) + (backendFiles ?? 0);
+	const mode = isEditMode ? 'configure' : 'monitor';
+	const hasVerificationErrors =
+		output.toLowerCase().includes('failed') || verificationIssues.some((issue) => issue.severity === 'error');
+	const headerStatus: 'ready' | 'scanning' | 'error' | 'unconfigured' = !hasConfiguredPaths
+		? 'unconfigured'
+		: hasVerificationErrors
+			? 'error'
+			: 'ready';
+	const isHeaderScanning = isSaving || countStatus === 'loading' || isDiscoveringApis;
 
 	return (
-		<main className="panel">
-			<header className="panel-header">
-				<div className="panel-title-row">
-					<p className="eyebrow">API Contract Integrity</p>
-					<span className={`status-pill ${hasConfiguredPaths ? 'is-ready' : 'is-setup'}`}>
-						{hasConfiguredPaths ? 'Configured' : 'Setup Required'}
-					</span>
-				</div>
-				<div className="panel-header-row">
-					<h1>StaticVerifier Control Center</h1>
-					{hasConfiguredPaths && !isEditMode ? (
-						<button
-							type="button"
-							className="corner-button"
-							onClick={() => setIsEditMode(true)}
-						>
-							Edit Sources
-						</button>
-					) : null}
-				</div>
-				<p>
-					{hasConfiguredPaths && !isEditMode
-						? 'Current FE/BE sources are configured. Edit or run verification.'
-						: 'First-time setup: configure FE and BE sources before verification.'}
-				</p>
-				<div className="meta-row">
-					<span>{frontend.entries.length} FE sources</span>
-					<span>{backend.entries.length} BE sources</span>
-					<span>{totalSourceRows} total rows</span>
-					<span>{typeof frontendFiles === 'number' && typeof backendFiles === 'number' ? `${totalFiles} indexed files` : 'File index pending'}</span>
-				</div>
-			</header>
+		<>
+			<HeaderBar
+				metrics={{
+					feSources: frontend.entries.length,
+					feIndexed: frontendFiles,
+					beSources: backend.entries.length,
+					beIndexed: backendFiles,
+					lastScanned: lastScannedAt,
+					status: headerStatus
+				}}
+				mode={mode}
+				onModeChange={(nextMode) => setIsEditMode(nextMode === 'configure')}
+				isScanning={isHeaderScanning}
+			/>
+			<main className="panel panel-after-header">
 
-			{hasConfiguredPaths && !isEditMode ? (
-				<section className="input-section summary-view">
-					<article className="summary-card">
-						<div className="summary-card-header">
-							<h3>Frontend Sources</h3>
-							<span>{frontend.entries.length}</span>
+				{hasConfiguredPaths && !isEditMode ? (
+					<section className="input-section summary-view">
+						<Card className="summary-card">
+							<div className="summary-card-header">
+								<h3>Frontend Sources</h3>
+								<Badge>{frontend.entries.length}</Badge>
+							</div>
+							<p className="summary-metric">
+								{countStatus === 'loading' ? '...' : typeof frontendFiles === 'number' ? frontendFiles : '...'} files
+							</p>
+						</Card>
+						<Card className="summary-card">
+							<div className="summary-card-header">
+								<h3>Backend Sources</h3>
+								<Badge>{backend.entries.length}</Badge>
+							</div>
+							<p className="summary-metric">
+								{countStatus === 'loading' ? '...' : typeof backendFiles === 'number' ? backendFiles : '...'} files
+							</p>
+						</Card>
+						<div className="button-row summary-actions">
+							<span className="editor-hint">Source paths are hidden here. Use Edit Sources to review or change them.</span>
+							<Button onClick={verifyContracts}>Refresh Verification</Button>
 						</div>
-						<p className="summary-metric">
-							{countStatus === 'loading' ? '...' : typeof frontendFiles === 'number' ? frontendFiles : '...'} files
-						</p>
-					</article>
-					<article className="summary-card">
-						<div className="summary-card-header">
-							<h3>Backend Sources</h3>
-							<span>{backend.entries.length}</span>
-						</div>
-						<p className="summary-metric">
-							{countStatus === 'loading' ? '...' : typeof backendFiles === 'number' ? backendFiles : '...'} files
-						</p>
-					</article>
-					<div className="button-row summary-actions">
-						<span className="editor-hint">Source paths are hidden here. Use Edit Sources to review or change them.</span>
-						<button type="button" onClick={verifyContracts}>Refresh Verification</button>
-					</div>
-				</section>
-			) : (
-				<ContractPathForm
-					activeTab={activeTab}
-					frontend={frontend}
-					backend={backend}
-					onActiveTabChange={setActiveTab}
-					onEntryTypeChange={(side, index, type) => {
-						updateSide(side, (current) => ({
-							...current,
-							entries: current.entries.map((entry, entryIndex) =>
-								entryIndex === index ? { ...entry, type } : entry
-							)
-						}));
-					}}
-					onEntryValueChange={(side, index, value) => {
-						updateSide(side, (current) => ({
-							...current,
-							entries: current.entries.map((entry, entryIndex) =>
-								entryIndex === index ? { ...entry, value } : entry
-							)
-						}));
-					}}
-					onAddEntry={(side) => {
-						updateSide(side, (current) => ({
-							...current,
-							entries: [...current.entries, createEntry('local', '')]
-						}));
-					}}
-					onRemoveEntry={(side, index) => {
-						updateSide(side, (current) => {
-							const next = current.entries.filter((_, entryIndex) => entryIndex !== index);
-							return {
+					</section>
+				) : (
+					<ContractPathForm
+						activeTab={activeTab}
+						frontend={frontend}
+						backend={backend}
+						onActiveTabChange={setActiveTab}
+						onEntryTypeChange={(side, index, type) => {
+							updateSide(side, (current) => ({
 								...current,
-								entries: next.length > 0 ? next : [createEntry('local', '')]
-							};
-						});
-					}}
-					onBrowseLocal={(side, index) => {
-						setOutput('Opening folder picker...');
-						postToHost({ type: 'browseLocal', side, index });
-					}}
-					getEntryCount={getEntryCount}
-					onPrimaryAction={handlePrimaryEditAction}
-					primaryActionLabel={!isDirty && countStatus === 'done' && hasConfiguredPaths ? 'Done, Head Back' : 'Save Sources'}
-					isPrimaryDoneAction={!isDirty && countStatus === 'done' && hasConfiguredPaths}
-					isSaving={isSaving}
-					isCounting={countStatus === 'loading'}
-					countStatus={countStatus}
-				/>
-			)}
+								entries: current.entries.map((entry, entryIndex) =>
+									entryIndex === index ? { ...entry, type } : entry
+								)
+							}));
+						}}
+						onEntryValueChange={(side, index, value) => {
+							updateSide(side, (current) => ({
+								...current,
+								entries: current.entries.map((entry, entryIndex) =>
+									entryIndex === index ? { ...entry, value } : entry
+								)
+							}));
+						}}
+						onAddEntry={(side) => {
+							updateSide(side, (current) => ({
+								...current,
+								entries: [...current.entries, createEntry('local', '')]
+							}));
+						}}
+						onRemoveEntry={(side, index) => {
+							updateSide(side, (current) => {
+								const next = current.entries.filter((_, entryIndex) => entryIndex !== index);
+								return {
+									...current,
+									entries: next.length > 0 ? next : [createEntry('local', '')]
+								};
+							});
+						}}
+						onBrowseLocal={(side, index) => {
+							setOutput('Opening folder picker...');
+							postToHost({ type: 'browseLocal', side, index });
+						}}
+						getEntryCount={getEntryCount}
+						onPrimaryAction={handlePrimaryEditAction}
+						primaryActionLabel={!isDirty && countStatus === 'done' && hasConfiguredPaths ? 'Done, Head Back' : 'Save Sources'}
+						isPrimaryDoneAction={!isDirty && countStatus === 'done' && hasConfiguredPaths}
+						isSaving={isSaving}
+						isCounting={countStatus === 'loading'}
+						countStatus={countStatus}
+					/>
+				)}
 
-			{!isEditMode ? <OutputPanel text={output} issues={verificationIssues} /> : null}
-		</main>
+				{!isEditMode ? (
+					<section className="results-shell">
+						<div className="results-tabs">
+							<Button
+								className={`tab-button ${resultTab === 'verification' ? 'is-active' : ''}`}
+								onClick={() => setResultTab('verification')}
+								variant={resultTab === 'verification' ? 'default' : 'outline'}
+							>
+								Verification
+							</Button>
+							<Button
+								className={`tab-button ${resultTab === 'discovery' ? 'is-active' : ''}`}
+								onClick={() => setResultTab('discovery')}
+								variant={resultTab === 'discovery' ? 'default' : 'outline'}
+							>
+								Discovered APIs
+							</Button>
+						</div>
+						{resultTab === 'verification' ? (
+							<OutputPanel text={output} issues={verificationIssues} />
+						) : (
+							<DiscoveryPanel
+								items={discoveredApis}
+								isLoading={isDiscoveringApis}
+								onRefresh={discoverApis}
+								onReveal={revealDiscoveredApi}
+							/>
+						)}
+					</section>
+				) : null}
+			</main>
+		</>
 	);
 }

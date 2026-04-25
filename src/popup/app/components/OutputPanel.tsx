@@ -1,3 +1,5 @@
+import { Badge, Card } from './ui';
+
 type OutputPanelProps = {
 	text: string;
 	issues?: Array<{
@@ -97,38 +99,40 @@ export function OutputPanel({ text, issues = [] }: OutputPanelProps) {
 		<section className={`results ${tone}`}>
 			<div className="results-header">
 				<h2>Verification Output</h2>
-				<span className="results-badge">{tone === 'is-error' ? 'Error' : tone === 'is-success' ? 'OK' : 'Info'}</span>
+				<Badge className="results-badge" variant={tone === 'is-error' ? 'danger' : tone === 'is-success' ? 'success' : 'info'}>
+					{tone === 'is-error' ? 'Error' : tone === 'is-success' ? 'OK' : 'Info'}
+				</Badge>
 			</div>
 			{parsed ? (
 				<div className="results-grid">
-					<div className="result-metric">
+					<Card className="result-metric">
 						<span className="metric-label">Compared</span>
 						<strong>{parsed.compared ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">Matches</span>
 						<strong>{parsed.matches ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">Mismatches</span>
 						<strong>{parsed.mismatches ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">Missing in BE</span>
 						<strong>{parsed.missingInBackend ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">Request schema</span>
 						<strong>{parsed.requestMismatch ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">Response schema</span>
 						<strong>{parsed.responseMismatch ?? '-'}</strong>
-					</div>
-					<div className="result-metric">
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">BE only</span>
 						<strong>{parsed.backendOnly ?? '-'}</strong>
-					</div>
+					</Card>
 				</div>
 			) : null}
 			{grouped.length > 0 ? (
