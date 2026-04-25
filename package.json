@@ -276,11 +276,13 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "compile": "npm run check-types && npm run lint && npm run tailwind:build && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
+    "watch:tailwind": "npm run tailwind:build -- --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "npm run check-types && npm run lint && npm run tailwind:build && node esbuild.js --production",
+    "tailwind:build": "tailwindcss -c tailwind.config.cjs -i ./src/popup/styles/tailwind.css -o ./src/popup/styles/tailwind.generated.css",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "test:unit": "npm run compile-tests && node --test \"out/test/unit/**/*.test.js\"",
@@ -293,6 +295,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.2.4",
     "@types/jest": "^30.0.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.17",
@@ -301,9 +304,12 @@
     "@types/vscode": "^1.115.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
+    "autoprefixer": "^10.5.0",
     "esbuild": "^0.27.3",
     "eslint": "^9.39.3",
     "npm-run-all": "^4.1.5",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
   },
@@ -312,6 +318,7 @@
     "serialize-javascript": "^7.0.5"
   },
   "dependencies": {
+    "lucide-react": "^1.11.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   }
