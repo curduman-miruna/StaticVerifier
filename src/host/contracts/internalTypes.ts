@@ -5,6 +5,8 @@ export type EndpointContract = {
 	path: string;
 	requestSchema?: string;
 	responseSchema?: string;
+	sourceLine?: number;
+	sourceColumn?: number;
 };
 
 export type ParsedContractFile = {

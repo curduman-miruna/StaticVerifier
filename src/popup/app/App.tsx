@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ContractPathForm } from './components/ContractPathForm';
+import { DiscoveryPanel } from './components/DiscoveryPanel';
 import { OutputPanel } from './components/OutputPanel';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
@@ -58,6 +59,18 @@ export default function App() {
 		severity: 'error' | 'warning' | 'info';
 		message: string;
 	}>>([]);
+	const [discoveredApis, setDiscoveredApis] = useState<Array<{
+		uri: string;
+		method: string;
+		path: string;
+		requestSchema?: string;
+		responseSchema?: string;
+		source: string;
+		line: number;
+		column: number;
+	}>>([]);
+	const [isDiscoveringApis, setIsDiscoveringApis] = useState(false);
+	const [resultTab, setResultTab] = useState<'verification' | 'discovery'>('verification');
 
 	useHostMessage((message) => {
 		if (message.type === 'actionResult') {
@@ -82,6 +95,12 @@ export default function App() {
 		if (message.type === 'verificationReport') {
 			setOutput(message.summaryText);
 			setVerificationIssues(message.issues);
+			return;
+		}
+
+		if (message.type === 'discoveredApis') {
+			setDiscoveredApis(message.items);
+			setIsDiscoveringApis(false);
 			return;
 		}
 
@@ -147,6 +166,24 @@ export default function App() {
 		postToHost({ type: 'verifyContracts' });
 	};
 
+	const discoverApis = () => {
+		setIsDiscoveringApis(true);
+		postToHost({ type: 'discoverApis' });
+	};
+
+	const revealDiscoveredApi = (item: {
+		uri: string;
+		line: number;
+		column: number;
+	}) => {
+		postToHost({
+			type: 'revealDiscoveredApi',
+			uri: item.uri,
+			line: item.line,
+			column: item.column
+		});
+	};
+
 	const handlePrimaryEditAction = () => {
 		if (!isDirty && countStatus === 'done' && hasConfiguredPaths && !isSaving) {
 			setIsEditMode(false);
@@ -158,6 +195,7 @@ export default function App() {
 	useEffect(() => {
 		if (hasConfiguredPaths && !isEditMode) {
 			verifyContracts();
+			discoverApis();
 			setCountStatus('loading');
 			postToHost({ type: 'refreshSourceCounts' });
 		}
@@ -295,7 +333,36 @@ export default function App() {
 				/>
 			)}
 
-			{!isEditMode ? <OutputPanel text={output} issues={verificationIssues} /> : null}
+			{!isEditMode ? (
+				<section className="results-shell">
+					<div className="results-tabs">
+						<button
+							type="button"
+							className={`tab-button ${resultTab === 'verification' ? 'is-active' : ''}`}
+							onClick={() => setResultTab('verification')}
+						>
+							Verification
+						</button>
+						<button
+							type="button"
+							className={`tab-button ${resultTab === 'discovery' ? 'is-active' : ''}`}
+							onClick={() => setResultTab('discovery')}
+						>
+							Discovered APIs
+						</button>
+					</div>
+					{resultTab === 'verification' ? (
+						<OutputPanel text={output} issues={verificationIssues} />
+					) : (
+						<DiscoveryPanel
+							items={discoveredApis}
+							isLoading={isDiscoveringApis}
+							onRefresh={discoverApis}
+							onReveal={revealDiscoveredApi}
+						/>
+					)}
+				</section>
+			) : null}
 		</main>
 	);
 }

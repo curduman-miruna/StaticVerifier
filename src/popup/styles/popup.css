@@ -291,6 +291,11 @@ body {
 	gap: 8px;
 }
 
+.tab-panel {
+	display: grid;
+	gap: 10px;
+}
+
 .tab-button {
 	margin-top: 0;
 	border: 1px solid var(--ui-border);
@@ -417,6 +422,17 @@ button:disabled {
 	border-radius: 10px;
 	border: 1px solid var(--ui-border);
 	background: var(--ui-panel);
+}
+
+.results-shell {
+	display: grid;
+	gap: 8px;
+}
+
+.results-tabs {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
 }
 
 .results-header {
@@ -617,6 +633,58 @@ button:disabled {
 	color: var(--ui-soft);
 }
 
+.discovery-item {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 8px;
+	padding: 8px 10px;
+	border-top: 1px solid var(--ui-border);
+}
+
+.discovery-main {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.discovery-method {
+	font-size: 0.68rem;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	border: 1px solid var(--ui-border);
+	border-radius: 999px;
+	padding: 2px 6px;
+}
+
+.discovery-path {
+	font-family: 'Cascadia Code', 'Consolas', monospace;
+	font-size: 0.79rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.discovery-location {
+	font-size: 0.72rem;
+	color: var(--ui-soft);
+}
+
+.discovery-meta {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	font-size: 0.74rem;
+	color: var(--ui-soft);
+}
+
+.discovery-open {
+	width: auto;
+	padding: 6px 10px;
+	font-size: 0.76rem;
+}
+
 @media (max-width: 820px) {
 	.summary-view {
 		grid-template-columns: 1fr;
@@ -648,6 +716,10 @@ button:disabled {
 	}
 
 	.merge-row {
+		grid-template-columns: 1fr;
+	}
+
+	.discovery-item {
 		grid-template-columns: 1fr;
 	}
 

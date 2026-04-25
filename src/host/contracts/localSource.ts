@@ -3,17 +3,25 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { countFilesystemFiles, findFilesystemFiles } from '../utils/filesystem';
 
-export async function findLocalMatches(rawInput: string): Promise<vscode.Uri[]> {
+export type FindLocalMatchOptions = {
+	allowedExtensions?: string[];
+};
+
+export async function findLocalMatches(
+	rawInput: string,
+	options?: FindLocalMatchOptions
+): Promise<vscode.Uri[]> {
 	const input = rawInput.trim();
 	if (!input) {
 		return [];
 	}
 
+	const allowedExtensions = normalizeAllowedExtensions(options?.allowedExtensions);
 	const uriMap = new Map<string, vscode.Uri>();
 	const hasGlobSyntax = /[*?[\]{}]/.test(input);
 
 	if (path.isAbsolute(input)) {
-		for (const uri of await findJsonInFilesystemPath(input, 200)) {
+		for (const uri of await findAllowedInFilesystemPath(input, 200, allowedExtensions)) {
 			uriMap.set(uri.toString(), uri);
 		}
 		return Array.from(uriMap.values());
@@ -21,20 +29,24 @@ export async function findLocalMatches(rawInput: string): Promise<vscode.Uri[]> 
 
 	if (hasGlobSyntax) {
 		for (const uri of await vscode.workspace.findFiles(input, '**/node_modules/**', 200)) {
-			uriMap.set(uri.toString(), uri);
+			if (isAllowedExtension(uri, allowedExtensions)) {
+				uriMap.set(uri.toString(), uri);
+			}
 		}
 		return Array.from(uriMap.values());
 	}
 
-	for (const candidate of [input, `${input}/**/*.json`]) {
+	for (const candidate of [input, ...allowedExtensions.map((ext) => `${input}/**/*${ext}`)]) {
 		for (const uri of await vscode.workspace.findFiles(candidate, '**/node_modules/**', 200)) {
-			uriMap.set(uri.toString(), uri);
+			if (isAllowedExtension(uri, allowedExtensions)) {
+				uriMap.set(uri.toString(), uri);
+			}
 		}
 	}
 
 	for (const folder of vscode.workspace.workspaceFolders ?? []) {
 		const resolved = path.resolve(folder.uri.fsPath, input);
-		for (const uri of await findJsonInFilesystemPath(resolved, 200)) {
+		for (const uri of await findAllowedInFilesystemPath(resolved, 200, allowedExtensions)) {
 			uriMap.set(uri.toString(), uri);
 		}
 	}
@@ -101,11 +113,38 @@ export async function countLocalFiles(rawInput: string): Promise<number> {
 	return total;
 }
 
-async function findJsonInFilesystemPath(targetPath: string, limit: number): Promise<vscode.Uri[]> {
+async function findAllowedInFilesystemPath(
+	targetPath: string,
+	limit: number,
+	allowedExtensions: string[]
+): Promise<vscode.Uri[]> {
 	const paths = await findFilesystemFiles(
 		targetPath,
 		limit,
-		(filePath) => filePath.toLowerCase().endsWith('.json')
+		(filePath) => isAllowedPath(filePath, allowedExtensions)
 	);
 	return paths.map((filePath) => vscode.Uri.file(filePath));
+}
+
+function normalizeAllowedExtensions(allowedExtensions: string[] | undefined): string[] {
+	if (!allowedExtensions || allowedExtensions.length === 0) {
+		return ['.json'];
+	}
+	const normalized = allowedExtensions
+		.map((ext) => ext.trim().toLowerCase())
+		.filter((ext) => ext.length > 0)
+		.map((ext) => ext.startsWith('.') ? ext : `.${ext}`);
+	return normalized.length > 0 ? normalized : ['.json'];
+}
+
+function isAllowedPath(filePath: string, allowedExtensions: string[]): boolean {
+	const lower = filePath.toLowerCase();
+	return allowedExtensions.some((ext) => lower.endsWith(ext));
+}
+
+function isAllowedExtension(uri: vscode.Uri, allowedExtensions: string[]): boolean {
+	if (uri.scheme !== 'file') {
+		return false;
+	}
+	return isAllowedPath(uri.fsPath, allowedExtensions);
 }
