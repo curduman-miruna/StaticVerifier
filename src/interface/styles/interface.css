@@ -58,38 +58,41 @@
 	--sv-tag-be-bg: #fef3c7;
 	--sv-tag-be-border: #fcd34d;
 	--sv-discovery-warn-fg: var(--vscode-editorWarning-foreground, #b45309);
-	--sv-discovery-warn-bg: var(--vscode-inputValidation-warningBackground, #fffbeb);
-	--sv-discovery-warn-border: var(--vscode-inputValidation-warningBorder, #f59e0b);
+	--sv-discovery-warn-bg: transparent;
+	--sv-discovery-warn-border: rgba(245, 158, 11, 0.28);
 	--sv-discovery-fe-fg: #6d28d9;
-	--sv-discovery-fe-bg: #ede9fe;
+	--sv-discovery-fe-bg: transparent;
 	--sv-discovery-fe-border: #c4b5fd;
 	--sv-discovery-be-fg: #b45309;
-	--sv-discovery-be-bg: #fef3c7;
-	--sv-discovery-be-border: #fcd34d;
+	--sv-discovery-be-bg: transparent;
+	--sv-discovery-be-border: rgba(245, 158, 11, 0.24);
 	--sv-discovery-schema-fg: #c2410c;
-	--sv-discovery-schema-bg: #ffedd5;
-	--sv-discovery-schema-border: #fed7aa;
+	--sv-discovery-schema-bg: transparent;
+	--sv-discovery-schema-border: rgba(249, 115, 22, 0.24);
 	--sv-discovery-duplicate-fg: var(--vscode-editorInfo-foreground, #1d4ed8);
-	--sv-discovery-duplicate-bg: var(--vscode-inputValidation-infoBackground, #eff6ff);
+	--sv-discovery-duplicate-bg: transparent;
 	--sv-discovery-duplicate-border: var(--vscode-inputValidation-infoBorder, #bfdbfe);
 	--sv-discovery-invalid-fg: var(--vscode-editorError-foreground, #b91c1c);
-	--sv-discovery-invalid-bg: var(--vscode-inputValidation-errorBackground, #fef2f2);
+	--sv-discovery-invalid-bg: transparent;
 	--sv-discovery-invalid-border: var(--vscode-inputValidation-errorBorder, #fecaca);
 	--sv-method-get-fg: #047857;
-	--sv-method-get-bg: #ecfdf5;
+	--sv-method-get-bg: transparent;
 	--sv-method-get-border: #a7f3d0;
 	--sv-method-post-fg: #1d4ed8;
-	--sv-method-post-bg: #eff6ff;
+	--sv-method-post-bg: transparent;
 	--sv-method-post-border: #bfdbfe;
 	--sv-method-put-fg: #b45309;
-	--sv-method-put-bg: #fffbeb;
-	--sv-method-put-border: #fde68a;
+	--sv-method-put-bg: transparent;
+	--sv-method-put-border: rgba(245, 158, 11, 0.24);
 	--sv-method-delete-fg: #b91c1c;
-	--sv-method-delete-bg: #fef2f2;
+	--sv-method-delete-bg: transparent;
 	--sv-method-delete-border: #fecaca;
 	--sv-method-patch-fg: #6d28d9;
-	--sv-method-patch-bg: #ede9fe;
+	--sv-method-patch-bg: transparent;
 	--sv-method-patch-border: #c4b5fd;
+	--sv-method-ws-fg: #0f766e;
+	--sv-method-ws-bg: transparent;
+	--sv-method-ws-border: #99f6e4;
 }
 
 body.vscode-dark,
@@ -133,38 +136,41 @@ body.vscode-high-contrast-light {
 	--sv-tag-be-bg: #46361b;
 	--sv-tag-be-border: #66512e;
 	--sv-discovery-warn-fg: var(--vscode-editorWarning-foreground, #fde68a);
-	--sv-discovery-warn-bg: var(--vscode-inputValidation-warningBackground, #3b321d);
-	--sv-discovery-warn-border: var(--vscode-inputValidation-warningBorder, #8a6f2a);
+	--sv-discovery-warn-bg: transparent;
+	--sv-discovery-warn-border: rgba(245, 158, 11, 0.24);
 	--sv-discovery-fe-fg: #ddd6fe;
-	--sv-discovery-fe-bg: #352452;
+	--sv-discovery-fe-bg: transparent;
 	--sv-discovery-fe-border: #4c366f;
 	--sv-discovery-be-fg: #fde68a;
-	--sv-discovery-be-bg: #46361b;
-	--sv-discovery-be-border: #66512e;
+	--sv-discovery-be-bg: transparent;
+	--sv-discovery-be-border: rgba(245, 158, 11, 0.22);
 	--sv-discovery-schema-fg: #fed7aa;
-	--sv-discovery-schema-bg: #4a2d1d;
-	--sv-discovery-schema-border: #714527;
+	--sv-discovery-schema-bg: transparent;
+	--sv-discovery-schema-border: rgba(249, 115, 22, 0.22);
 	--sv-discovery-duplicate-fg: var(--vscode-editorInfo-foreground, #bfdbfe);
-	--sv-discovery-duplicate-bg: var(--vscode-inputValidation-infoBackground, #1c2f49);
+	--sv-discovery-duplicate-bg: transparent;
 	--sv-discovery-duplicate-border: var(--vscode-inputValidation-infoBorder, #2f4869);
 	--sv-discovery-invalid-fg: var(--vscode-editorError-foreground, #fecaca);
-	--sv-discovery-invalid-bg: var(--vscode-inputValidation-errorBackground, #3b1f23);
+	--sv-discovery-invalid-bg: transparent;
 	--sv-discovery-invalid-border: var(--vscode-inputValidation-errorBorder, #5a3036);
 	--sv-method-get-fg: #86efac;
-	--sv-method-get-bg: #19342d;
+	--sv-method-get-bg: transparent;
 	--sv-method-get-border: #2b5146;
 	--sv-method-post-fg: #bfdbfe;
-	--sv-method-post-bg: #1c2f49;
+	--sv-method-post-bg: transparent;
 	--sv-method-post-border: #2f4869;
 	--sv-method-put-fg: #fde68a;
-	--sv-method-put-bg: #46361b;
-	--sv-method-put-border: #66512e;
+	--sv-method-put-bg: transparent;
+	--sv-method-put-border: rgba(245, 158, 11, 0.22);
 	--sv-method-delete-fg: #fecaca;
-	--sv-method-delete-bg: #3b1f23;
+	--sv-method-delete-bg: transparent;
 	--sv-method-delete-border: #5a3036;
 	--sv-method-patch-fg: #ddd6fe;
-	--sv-method-patch-bg: #352452;
+	--sv-method-patch-bg: transparent;
 	--sv-method-patch-border: #4c366f;
+	--sv-method-ws-fg: #99f6e4;
+	--sv-method-ws-bg: transparent;
+	--sv-method-ws-border: #285f5c;
 }
 
 html,
@@ -2109,27 +2115,66 @@ select:focus {
 .discovery-item {
 	display: grid;
 	gap: 0;
-	border: 1px solid transparent;
-	border-radius: 8px;
-	overflow: hidden;
-	transition: background-color 120ms ease, border-color 120ms ease;
+	border: 0;
+	border-radius: 0;
+	overflow: visible;
 }
 
 .discovery-item:hover {
+	background: transparent;
+}
+
+.discovery-item-method-get:hover .discovery-item-row,
+.discovery-item-method-get.is-mismatch .discovery-item-row,
+.discovery-item-method-get.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-get-border);
+}
+
+.discovery-item-method-post:hover .discovery-item-row,
+.discovery-item-method-post.is-mismatch .discovery-item-row,
+.discovery-item-method-post.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-post-border);
+}
+
+.discovery-item-method-put:hover .discovery-item-row,
+.discovery-item-method-put.is-mismatch .discovery-item-row,
+.discovery-item-method-put.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-put-border);
+}
+
+.discovery-item-method-delete:hover .discovery-item-row,
+.discovery-item-method-delete.is-mismatch .discovery-item-row,
+.discovery-item-method-delete.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-delete-border);
+}
+
+.discovery-item-method-patch:hover .discovery-item-row,
+.discovery-item-method-patch.is-mismatch .discovery-item-row,
+.discovery-item-method-patch.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-patch-border);
+}
+
+.discovery-item-method-ws:hover .discovery-item-row,
+.discovery-item-method-ws.is-mismatch .discovery-item-row,
+.discovery-item-method-ws.is-expanded .discovery-item-row {
+	border-color: var(--sv-method-ws-border);
+}
+
+.discovery-item-method-head:hover .discovery-item-row,
+.discovery-item-method-head.is-mismatch .discovery-item-row,
+.discovery-item-method-head.is-expanded .discovery-item-row,
+.discovery-item-method-options:hover .discovery-item-row,
+.discovery-item-method-options.is-mismatch .discovery-item-row,
+.discovery-item-method-options.is-expanded .discovery-item-row {
 	border-color: var(--ui-border);
-	background: var(--ui-panel-2);
 }
 
 .discovery-item.is-expanded {
-	border-color: var(--ui-border);
-	background: var(--ui-panel);
-	border-bottom-left-radius: 0;
-	border-bottom-right-radius: 0;
+	background: transparent;
 }
 
 .discovery-item.is-mismatch {
-	border-color: var(--sv-discovery-warn-border);
-	background: var(--sv-discovery-warn-bg);
+	background: transparent;
 }
 
 .discovery-item-row {
@@ -2137,6 +2182,13 @@ select:focus {
 	align-items: center;
 	gap: 8px;
 	padding: 8px;
+	border: 1px solid transparent;
+	border-radius: 7px;
+	transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.discovery-item-row:hover {
+	background: transparent;
 }
 
 .discovery-item-row.has-schema {
@@ -2206,14 +2258,20 @@ select:focus {
 	border-color: var(--sv-method-patch-border);
 }
 
+.discovery-method-ws {
+	background: var(--sv-method-ws-bg);
+	color: var(--sv-method-ws-fg);
+	border-color: var(--sv-method-ws-border);
+}
+
 .discovery-method-head {
-	background: var(--ui-panel-2);
+	background: transparent;
 	color: var(--ui-soft);
 	border-color: var(--ui-border);
 }
 
 .discovery-method-options {
-	background: var(--ui-panel-2);
+	background: transparent;
 	color: var(--ui-soft);
 	border-color: var(--ui-border);
 }
@@ -2393,12 +2451,9 @@ select:focus {
 	display: grid;
 	gap: 8px;
 	margin-top: -2px;
-	padding: 10px;
-	border: 1px solid var(--ui-border);
-	border-top: 0;
-	border-bottom-left-radius: 8px;
-	border-bottom-right-radius: 8px;
-	background: var(--ui-panel-2);
+	padding: 8px 10px 10px 30px;
+	border: 0;
+	background: transparent;
 }
 
 .discovery-schema-tabs {
@@ -2604,7 +2659,7 @@ select:focus {
 
 .discovery-type-object {
 	color: var(--ui-soft);
-	background: var(--ui-panel-2);
+	background: transparent;
 	border-color: var(--ui-border);
 }
 

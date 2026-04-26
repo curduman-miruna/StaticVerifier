@@ -68,3 +68,37 @@ test('extracts controller decorator routes with prefixes', () => {
 		{ method: 'DELETE', path: '/api/orders/{id}', responseSchema: undefined }
 	]);
 });
+
+test('extracts FastAPI APIRouter prefixes and websocket routes', () => {
+	const source = `
+		from fastapi import APIRouter, Depends, WebSocket
+		from app.api.v1.deps import get_current_user
+
+		router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+		@router.get("/", response_model=list[ConversationPreview])
+		async def list_my_conversations():
+			return []
+
+		@router.post("/group", response_model=ConversationRead)
+		async def create_group_conversation():
+			return {}
+
+		@router.get("/{conversation_id}/messages", response_model=MessagePage)
+		async def list_conversation_messages():
+			return {}
+
+		@router.websocket("/ws")
+		async def websocket_endpoint(websocket: WebSocket):
+			return None
+	`;
+
+	const endpoints = extractBackendEndpointsFromCode(source);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/v1/conversations', responseSchema: 'list[ConversationPreview]' },
+		{ method: 'POST', path: '/api/v1/conversations/group', responseSchema: 'ConversationRead' },
+		{ method: 'GET', path: '/api/v1/conversations/{conversation_id}/messages', responseSchema: 'MessagePage' },
+		{ method: 'WS', path: '/api/v1/conversations/ws', responseSchema: undefined }
+	]);
+});

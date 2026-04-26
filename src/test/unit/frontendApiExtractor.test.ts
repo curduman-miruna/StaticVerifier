@@ -170,3 +170,167 @@ test('supports configurable method-client signatures', () => {
 	assert.deepEqual(stripLocation(endpoints[0]), { method: 'SEND', path: '/api/submit', responseSchema: 'ResultDto' });
 	assert.deepEqual(stripLocation(endpoints[1]), { method: 'QUERY', path: '/api/list', responseSchema: 'ResultDto' });
 });
+
+test('extracts constant, concatenated, and template literal paths', () => {
+	const source = `
+		const root = '/api';
+		const users = root + '/users';
+		const id = '42';
+
+		async function load(): Promise<UserDto> {
+			await fetch(users);
+			await fetch(\`\${root}/users/\${id}\`);
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/users', responseSchema: 'UserDto' },
+		{ method: 'GET', path: '/api/users/42', responseSchema: 'UserDto' }
+	]);
+});
+
+test('extracts fetch Request objects and generic response schemas', () => {
+	const source = `
+		async function load() {
+			await fetch(new Request('/api/users', { method: 'DELETE' })) as DeleteResult;
+			await fetchJson<UserDto>('/api/users/1');
+			await axios.get<UserDto[]>('/api/users');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'DELETE', path: '/api/users', responseSchema: 'DeleteResult' },
+		{ method: 'GET', path: '/api/users/1', responseSchema: 'UserDto' },
+		{ method: 'GET', path: '/api/users', responseSchema: 'UserDto[]' }
+	]);
+});
+
+test('infers request schemas from fetch and client bodies', () => {
+	const source = `
+		const payload = {} as CreateUserRequest;
+
+		async function save(): Promise<UserDto> {
+			await fetch('/api/users', {
+				method: 'POST',
+				body: JSON.stringify(payload)
+			});
+			await axios.patch<UserDto, UpdateUserRequest>('/api/users/1', {} as UpdateUserRequest);
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'POST', path: '/api/users', requestSchema: 'CreateUserRequest', responseSchema: 'UserDto' },
+		{ method: 'PATCH', path: '/api/users/1', requestSchema: 'UpdateUserRequest', responseSchema: 'UserDto' }
+	]);
+});
+
+test('extracts env-prefixed fetch URLs and strips query strings', () => {
+	const source = `
+		const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+		export interface AuthUser {
+			id: string;
+			email: string;
+		}
+
+		export async function fetchCurrentUser(): Promise<AuthUser | null> {
+			const res = await fetch(\`\${API_URL}/api/v1/auth/me\`, {
+				method: 'GET',
+				credentials: 'include'
+			});
+			return (await res.json()) as AuthUser;
+		}
+
+		export async function updateUsername(newUsername: string): Promise<{ username: string }> {
+			const res = await fetch(
+				\`\${API_URL}/api/v1/users/me/username?new_username=\${encodeURIComponent(newUsername)}\`,
+				{ method: 'PUT', credentials: 'include' }
+			);
+			return res.json();
+		}
+
+		export async function logout(): Promise<void> {
+			await fetch(\`\${API_URL}/api/v1/auth/logout\`, {
+				method: 'POST',
+				credentials: 'include'
+			});
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/v1/auth/me', responseSchema: 'AuthUser | null' },
+		{ method: 'PUT', path: '/api/v1/users/me/username', responseSchema: '{ username: string }' },
+		{ method: 'POST', path: '/api/v1/auth/logout', responseSchema: undefined }
+	]);
+});
+
+test('keeps unresolved template path segments as route parameters', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_URL;
+
+		async function loadHistory(conversationId: string): Promise<MessagePage> {
+			await fetch(\`\${API_BASE}/api/v1/conversations/\${conversationId}/messages?limit=50\`);
+		}
+
+		async function openFriend(contact: Contact): Promise<Conversation> {
+			await fetch(\`\${API_BASE}/api/v1/friends/\${contact.otherUserId}/conversation\`);
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/v1/conversations/{conversationId}/messages', responseSchema: 'MessagePage' },
+		{ method: 'GET', path: '/api/v1/friends/{otherUserId}/conversation', responseSchema: 'Conversation' }
+	]);
+});
+
+test('extracts websocket endpoints from class URL wrappers', () => {
+	const source = `
+		class WsClient {
+			private ws: WebSocket | null = null;
+			private url: string;
+
+			constructor() {
+				const apiBase = import.meta.env.VITE_API_URL as string | undefined;
+				if (apiBase) {
+					const api = new URL(apiBase);
+					const protocol = api.protocol === 'https:' ? 'wss' : 'ws';
+					this.url = \`\${protocol}://\${api.host}/ws\`;
+					return;
+				}
+				const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+				this.url = \`\${protocol}://\${window.location.host}/ws\`;
+			}
+
+			connect(token?: string): Promise<void> {
+				let url = this.url;
+				if (token) {
+					url = \`\${url}?token=\${encodeURIComponent(token)}\`;
+				}
+				this.ws = new WebSocket(url);
+				return Promise.resolve();
+			}
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'WS', path: '/ws', responseSchema: undefined }
+	]);
+});

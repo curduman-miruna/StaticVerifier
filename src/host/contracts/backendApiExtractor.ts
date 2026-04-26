@@ -7,6 +7,8 @@ type RouteMatch = {
 };
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+const FASTAPI_DECORATORS = [...HTTP_METHODS, 'websocket'];
+const DEFAULT_FASTAPI_API_PREFIX = '/api/v1';
 const METHOD_DECORATORS = new Map([
 	['Get', 'GET'],
 	['Post', 'POST'],
@@ -25,9 +27,11 @@ const METHOD_DECORATORS = new Map([
 export function extractBackendEndpointsFromCode(text: string): EndpointContract[] {
 	const endpoints: EndpointContract[] = [];
 	const byKey = new Set<string>();
+	const fastApiRouterPrefix = extractFastApiRouterPrefix(text);
+	const fileApiPrefix = inferFileApiPrefix(text);
 
 	const addEndpoint = (match: RouteMatch): void => {
-		const endpointPath = normalizeEndpointPath(match.path);
+		const endpointPath = normalizeEndpointPath(joinPaths(fileApiPrefix, fastApiRouterPrefix, match.path));
 		if (!endpointPath) {
 			return;
 		}
@@ -62,17 +66,34 @@ export function extractBackendEndpointsFromCode(text: string): EndpointContract[
 
 function extractExpressStyleRoutes(text: string): RouteMatch[] {
 	const matches: RouteMatch[] = [];
-	const methods = HTTP_METHODS.map(escapeRegex).join('|');
+	const methods = FASTAPI_DECORATORS.map(escapeRegex).join('|');
 	const routeRegex = new RegExp(`\\b(?:app|router|server|fastify)\\.(${methods})\\s*\\(\\s*(['"\`])([^'"\`]+)\\2`, 'gi');
 	let match: RegExpExecArray | null;
 	while ((match = routeRegex.exec(text)) !== null) {
+		const method = match[1].toLowerCase() === 'websocket' ? 'WS' : match[1];
 		matches.push({
-			method: match[1],
+			method,
 			path: match[3],
 			index: match.index
 		});
 	}
 	return matches;
+}
+
+function extractFastApiRouterPrefix(text: string): string {
+	const match = text.match(/\brouter\s*=\s*APIRouter\s*\(([\s\S]*?)\)/);
+	if (!match) {
+		return '';
+	}
+	const prefixMatch = match[1].match(/\bprefix\s*=\s*(['"`])([^'"`]*)\1/);
+	return prefixMatch?.[2] ?? '';
+}
+
+function inferFileApiPrefix(text: string): string {
+	if (/\bAPIRouter\b/.test(text) && /\bfrom\s+app\.api\.v1\b/.test(text)) {
+		return DEFAULT_FASTAPI_API_PREFIX;
+	}
+	return '';
 }
 
 function extractObjectStyleRoutes(text: string): RouteMatch[] {
@@ -145,9 +166,10 @@ function findClassBlocks(text: string): Array<{ start: number; end: number }> {
 
 function inferResponseSchema(text: string, routeIndex: number): string | undefined {
 	const hint = text.slice(routeIndex, Math.min(text.length, routeIndex + 600));
+	const responseModelMatch = hint.match(/\bresponse_model\s*=\s*([^,\)\n]+)/);
 	const genericMatch = hint.match(/\b(?:Promise|Observable)<\s*([A-Za-z_$][\w$.[\]<>|,\s]*)\s*>/);
-	const annotationMatch = hint.match(/\)\s*:\s*([A-Za-z_$][\w$.[\]<>|,\s]*)\s*(?:=>|\{)/);
-	return normalizeTypeName(genericMatch?.[1] ?? annotationMatch?.[1]);
+	const annotationMatch = hint.match(/\)[ \t]*:[ \t]*([A-Za-z_$][\w$.[\]<>|,\s]*?)[ \t]*(?:=>|\{)/);
+	return normalizeTypeName(responseModelMatch?.[1] ?? genericMatch?.[1] ?? annotationMatch?.[1]);
 }
 
 function normalizeEndpointPath(rawPath: string): string | undefined {
@@ -174,8 +196,12 @@ function normalizePathToken(path: string): string | undefined {
 	return collapsed.length > 1 && collapsed.endsWith('/') ? collapsed.slice(0, -1) : collapsed;
 }
 
-function joinPaths(prefix: string, routePath: string): string {
-	return `${normalizeEndpointPath(prefix) ?? ''}/${routePath}`.replace(/\/+/g, '/');
+function joinPaths(...parts: string[]): string {
+	return parts
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0)
+		.join('/')
+		.replace(/\/+/g, '/');
 }
 
 function findMatchingBrace(text: string, openBraceIndex: number): number {

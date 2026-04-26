@@ -42,7 +42,7 @@ type GroupedSource = {
 	items: DiscoveredApi[];
 };
 
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'WS';
 
 type MethodStyle = {
 	className: string;
@@ -85,7 +85,7 @@ export function getFileName(path: string): string {
 
 export function normalizeMethod(method: string): HttpMethod {
 	const value = method.toUpperCase();
-	if (value === 'GET' || value === 'POST' || value === 'PUT' || value === 'DELETE' || value === 'PATCH' || value === 'HEAD' || value === 'OPTIONS') {
+	if (value === 'GET' || value === 'POST' || value === 'PUT' || value === 'DELETE' || value === 'PATCH' || value === 'HEAD' || value === 'OPTIONS' || value === 'WS') {
 		return value;
 	}
 	return 'GET';
@@ -98,7 +98,8 @@ export const METHOD_STYLES: Record<HttpMethod, MethodStyle> = {
 	DELETE: { className: 'discovery-method-delete', label: 'DEL' },
 	PATCH: { className: 'discovery-method-patch', label: 'PATCH' },
 	HEAD: { className: 'discovery-method-head', label: 'HEAD' },
-	OPTIONS: { className: 'discovery-method-options', label: 'OPT' }
+	OPTIONS: { className: 'discovery-method-options', label: 'OPT' },
+	WS: { className: 'discovery-method-ws', label: 'WS' }
 };
 
 export function filterGroups(groups: GroupedSource[], search: string, mismatchLookup?: MismatchLookup): GroupedSource[] {
@@ -448,10 +449,11 @@ function EndpointRow({
 	const responseSchema = parseSchema(endpoint.responseSchema);
 	const hasSchema = Boolean(requestSchema || responseSchema);
 	const selectedTab = requestSchema && responseSchema ? activeTab : requestSchema ? 'request' : 'response';
+	const methodOutlineClass = `discovery-item-method-${method.toLowerCase()}`;
 
 	return (
 		<>
-			<div className={`discovery-item ${mismatch ? 'is-mismatch' : ''} ${expanded ? 'is-expanded' : ''}`}>
+			<div className={`discovery-item ${methodOutlineClass} ${mismatch ? 'is-mismatch' : ''} ${expanded ? 'is-expanded' : ''}`}>
 				<div
 					className={`discovery-item-row ${hasSchema ? 'has-schema' : ''}`}
 					onClick={() => {

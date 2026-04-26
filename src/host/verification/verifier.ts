@@ -335,7 +335,10 @@ function normalizeEndpointPath(rawPath: string): string | undefined {
 
 function normalizePathToken(path: string): string | undefined {
 	const noQuery = path.split(/[?#]/)[0];
-	const collapsed = noQuery.replace(/\/+/g, '/').trim();
+	const normalizedParams = noQuery
+		.replace(/\/\{[^/}]+\}/g, '/{param}')
+		.replace(/\/:[^/]+/g, '/{param}');
+	const collapsed = normalizedParams.replace(/\/+/g, '/').trim();
 	if (!collapsed.startsWith('/')) {
 		return undefined;
 	}
