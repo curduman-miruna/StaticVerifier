@@ -5,7 +5,7 @@ import { getContractInputFromConfig, getEntryValues, getFrontendDiscoveryOptions
 import { buildVirtualContractUri } from './buildVirtualContractUri';
 import { parseContractText } from './contractParser';
 import type { FrontendDiscoveryOptions } from './frontendApiExtractor';
-import { normalizeGitHubRawUrl } from './githubSource';
+import { isSupportedGitHubContractUrl, normalizeGitHubRawUrl } from './githubSource';
 import { findLocalMatches } from './localSource';
 import type { ParsedContractFile } from './internalTypes';
 
@@ -19,6 +19,20 @@ const FRONTEND_DISCOVERY_ALLOWED_EXTENSIONS = new Set([
 	'.json'
 ]);
 const FRONTEND_DISCOVERY_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'];
+const BACKEND_DISCOVERY_ALLOWED_EXTENSIONS = new Set([
+	'.ts',
+	'.tsx',
+	'.js',
+	'.jsx',
+	'.mjs',
+	'.cjs',
+	'.py',
+	'.java',
+	'.kt',
+	'.cs',
+	'.json'
+]);
+const BACKEND_DISCOVERY_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.kt', '.cs', '.json'];
 
 const FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS = [
 	`${path.sep}node_modules${path.sep}`,
@@ -30,6 +44,7 @@ const FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS = [
 	`${path.sep}.nuxt${path.sep}`,
 	`${path.sep}.svelte-kit${path.sep}`
 ];
+const BACKEND_DISCOVERY_EXCLUDED_SEGMENTS = FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS;
 
 export async function loadConfiguredContracts(
 	side: ContractSide,
@@ -59,7 +74,7 @@ async function loadLocalContracts(
 
 	for (const glob of globs) {
 		const matches = await findLocalMatches(glob, {
-			allowedExtensions: side === 'frontend' ? FRONTEND_DISCOVERY_EXTENSIONS : ['.json']
+			allowedExtensions: side === 'frontend' ? FRONTEND_DISCOVERY_EXTENSIONS : BACKEND_DISCOVERY_EXTENSIONS
 		});
 		if (matches.length === 0) {
 			const virtualUri = buildVirtualContractUri(side, 'local');
@@ -81,7 +96,7 @@ async function loadLocalContracts(
 				continue;
 			}
 			uniqueUris.add(key);
-			if (side === 'frontend' && shouldSkipFrontendDiscoveryUri(uri)) {
+			if (shouldSkipDiscoveryUri(side, uri)) {
 				continue;
 			}
 
@@ -119,6 +134,17 @@ async function loadGithubContracts(
 	const files: ParsedContractFile[] = [];
 	for (let index = 0; index < urls.length; index += 1) {
 		const url = urls[index];
+		if (!isSupportedGitHubContractUrl(url)) {
+			const virtualUri = buildVirtualContractUri(side, 'github', index);
+			collection.set(virtualUri, [
+				new vscode.Diagnostic(
+					new vscode.Range(0, 0, 0, 1),
+					`Unsupported ${side.toUpperCase()} GitHub URL: ${url}. Use a file URL (github.com/.../blob/... or raw.githubusercontent.com/...).`,
+					vscode.DiagnosticSeverity.Error
+				)
+			]);
+			continue;
+		}
 		const normalizedUrl = normalizeGitHubRawUrl(url);
 		const virtualUri = buildVirtualContractUri(side, 'github', index);
 
@@ -155,14 +181,15 @@ async function loadGithubContracts(
 	return files;
 }
 
-function shouldSkipFrontendDiscoveryUri(uri: vscode.Uri): boolean {
+function shouldSkipDiscoveryUri(side: ContractSide, uri: vscode.Uri): boolean {
 	if (uri.scheme !== 'file') {
 		return false;
 	}
 
 	const filePath = uri.fsPath;
 	const lowerPath = filePath.toLowerCase();
-	for (const segment of FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS) {
+	const excludedSegments = side === 'frontend' ? FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS : BACKEND_DISCOVERY_EXCLUDED_SEGMENTS;
+	for (const segment of excludedSegments) {
 		if (lowerPath.includes(segment.toLowerCase())) {
 			return true;
 		}
@@ -173,5 +200,6 @@ function shouldSkipFrontendDiscoveryUri(uri: vscode.Uri): boolean {
 	}
 
 	const extension = path.extname(lowerPath);
-	return !FRONTEND_DISCOVERY_ALLOWED_EXTENSIONS.has(extension);
+	const allowedExtensions = side === 'frontend' ? FRONTEND_DISCOVERY_ALLOWED_EXTENSIONS : BACKEND_DISCOVERY_ALLOWED_EXTENSIONS;
+	return !allowedExtensions.has(extension);
 }

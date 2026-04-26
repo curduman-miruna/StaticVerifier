@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod } from '../../popup/app/components/DiscoveryPanel';
+import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod } from '../../interface/app/components/DiscoveryPanel';
 
 type ApiItem = {
 	uri: string;
@@ -8,6 +8,7 @@ type ApiItem = {
 	path: string;
 	requestSchema?: string;
 	responseSchema?: string;
+	side: 'frontend' | 'backend';
 	source: string;
 	line: number;
 	column: number;
@@ -18,6 +19,7 @@ const items: ApiItem[] = [
 		uri: 'file:///a.ts',
 		method: 'get',
 		path: '/api/users',
+		side: 'frontend',
 		source: 'src/api/a.ts',
 		line: 10,
 		column: 2
@@ -26,6 +28,7 @@ const items: ApiItem[] = [
 		uri: 'file:///b.ts',
 		method: 'POST',
 		path: '/api/users',
+		side: 'backend',
 		source: 'src/api/b.ts',
 		line: 20,
 		column: 4
@@ -34,6 +37,7 @@ const items: ApiItem[] = [
 		uri: 'file:///a2.ts',
 		method: 'patch',
 		path: '/api/users/1',
+		side: 'frontend',
 		source: 'src/api/a.ts',
 		line: 30,
 		column: 6
@@ -68,6 +72,10 @@ test('filterGroups filters by path, method, and source', () => {
 	const bySource = filterGroups(grouped, 'a.ts');
 	assert.equal(bySource.length, 1);
 	assert.equal(bySource[0].items.length, 2);
+
+	const bySide = filterGroups(grouped, 'backend');
+	assert.equal(bySide.length, 1);
+	assert.equal(bySide[0].source, 'src/api/b.ts');
 });
 
 test('getFileName returns last path segment', () => {

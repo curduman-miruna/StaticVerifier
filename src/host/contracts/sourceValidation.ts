@@ -4,7 +4,7 @@ import type {
 	ContractSourceEntry,
 	SourceCountItem
 } from '../../shared/contracts';
-import { countGitHubFiles, normalizeGitHubRawUrl } from './githubSource';
+import { countGitHubFiles, isSupportedGitHubContractUrl, normalizeGitHubRawUrl } from './githubSource';
 import { countLocalFiles, findLocalMatches, localEntryExists } from './localSource';
 export { browseLocalEntry } from './browseLocalEntry';
 
@@ -54,6 +54,10 @@ async function countEntriesForSide(
 			result.push({ side, type: 'local', value, fileCount: await countLocalFiles(value) });
 			continue;
 		}
+		if (!isSupportedGitHubContractUrl(value)) {
+			result.push({ side, type: 'github', value, fileCount: 0 });
+			continue;
+		}
 		result.push({ side, type: 'github', value, fileCount: await countGitHubFiles(value) });
 	}
 	return result;
@@ -78,6 +82,11 @@ async function validateSideEntries(
 				continue;
 			}
 			localMatched += (await findLocalMatches(value)).length;
+			continue;
+		}
+
+		if (!isSupportedGitHubContractUrl(value)) {
+			errors.push(`${label} GitHub URL must point to a file (blob/raw): ${value}`);
 			continue;
 		}
 

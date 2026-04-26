@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ContractPathForm } from './components/ContractPathForm';
-import { DiscoveryPanel } from './components/DiscoveryPanel';
 import { HeaderBar } from './components/HeaderBar';
-import { OutputPanel } from './components/OutputPanel';
+import { MonitorPanel } from './components/MonitorPanel';
 import { Badge, Button, Card } from './components/ui';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
 import { ContractInput, ContractSourceEntry, InitialState } from './types/messages';
+import type { VerificationIssue } from '../../shared/messages';
 
 function createEntry(type: ContractSourceEntry['type'], value: string): ContractSourceEntry {
 	return { type, value };
@@ -54,25 +54,19 @@ export default function App() {
 	const [sourceCounts, setSourceCounts] = useState<Record<string, number>>({});
 	const [countStatus, setCountStatus] = useState<'idle' | 'loading' | 'done'>('idle');
 	const [isDirty, setIsDirty] = useState(false);
-	const [verificationIssues, setVerificationIssues] = useState<Array<{
-		file: string;
-		line: number;
-		column: number;
-		severity: 'error' | 'warning' | 'info';
-		message: string;
-	}>>([]);
+	const [verificationIssues, setVerificationIssues] = useState<VerificationIssue[]>([]);
 	const [discoveredApis, setDiscoveredApis] = useState<Array<{
 		uri: string;
 		method: string;
 		path: string;
 		requestSchema?: string;
 		responseSchema?: string;
+		side: 'frontend' | 'backend';
 		source: string;
 		line: number;
 		column: number;
 	}>>([]);
 	const [isDiscoveringApis, setIsDiscoveringApis] = useState(false);
-	const [resultTab, setResultTab] = useState<'verification' | 'discovery'>('verification');
 	const [lastScannedAt, setLastScannedAt] = useState<Date | undefined>(undefined);
 
 	useHostMessage((message) => {
@@ -235,6 +229,14 @@ export default function App() {
 			? 'error'
 			: 'ready';
 	const isHeaderScanning = isSaving || countStatus === 'loading' || isDiscoveringApis;
+	const totalEndpoints = discoveredApis.length;
+
+	const handleMonitorRescan = async () => {
+		verifyContracts();
+		discoverApis();
+		setCountStatus('loading');
+		postToHost({ type: 'refreshSourceCounts' });
+	};
 
 	return (
 		<>
@@ -330,34 +332,20 @@ export default function App() {
 				)}
 
 				{!isEditMode ? (
-					<section className="results-shell">
-						<div className="results-tabs">
-							<Button
-								className={`tab-button ${resultTab === 'verification' ? 'is-active' : ''}`}
-								onClick={() => setResultTab('verification')}
-								variant={resultTab === 'verification' ? 'default' : 'outline'}
-							>
-								Verification
-							</Button>
-							<Button
-								className={`tab-button ${resultTab === 'discovery' ? 'is-active' : ''}`}
-								onClick={() => setResultTab('discovery')}
-								variant={resultTab === 'discovery' ? 'default' : 'outline'}
-							>
-								Discovered APIs
-							</Button>
-						</div>
-						{resultTab === 'verification' ? (
-							<OutputPanel text={output} issues={verificationIssues} />
-						) : (
-							<DiscoveryPanel
-								items={discoveredApis}
-								isLoading={isDiscoveringApis}
-								onRefresh={discoverApis}
-								onReveal={revealDiscoveredApi}
-							/>
-						)}
-					</section>
+					<MonitorPanel
+						metrics={{
+							totalEndpoints,
+							mismatchCount: verificationIssues.length,
+							feIndexed: frontendFiles ?? 0,
+							beIndexed: backendFiles ?? 0
+						}}
+						mismatches={verificationIssues}
+						discoveredApis={discoveredApis}
+						isDiscovering={isDiscoveringApis}
+						onRescan={handleMonitorRescan}
+						onRevealDiscoveredApi={revealDiscoveredApi}
+						onRefreshDiscovery={discoverApis}
+					/>
 				) : null}
 			</main>
 		</>

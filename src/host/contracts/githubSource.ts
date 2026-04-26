@@ -5,13 +5,19 @@ type ParsedGitHubLink =
 	| { kind: 'raw'; owner: string; repo: string; branch: string; filepath: string };
 
 export function normalizeGitHubRawUrl(url: string): string {
-	const blobPattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
-	const match = url.match(blobPattern);
-	if (!match) {
+	const parsed = parseGitHubLink(url);
+	if (!parsed) {
 		return url;
 	}
-	const [, owner, repo, branch, filePath] = match;
-	return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+	if (parsed.kind === 'blob') {
+		return `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${parsed.branch}/${parsed.filepath}`;
+	}
+	return url;
+}
+
+export function isSupportedGitHubContractUrl(url: string): boolean {
+	const parsed = parseGitHubLink(url);
+	return parsed?.kind === 'blob' || parsed?.kind === 'raw';
 }
 
 export async function countGitHubFiles(url: string): Promise<number> {

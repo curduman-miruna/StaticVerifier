@@ -6,8 +6,8 @@ export function getPopupWebviewHtml(
 	extensionUri: vscode.Uri,
 	initialState: InitialState
 ): string {
-	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'popup.js'));
-	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'popup.css'));
+	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'interface.js'));
+	const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'interface.css'));
 	const nonce = createNonce();
 	const encodedState = JSON.stringify(initialState).replace(/</g, '\\u003c');
 
@@ -16,7 +16,7 @@ export function getPopupWebviewHtml(
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1.0">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
 	<title>StaticVerifier</title>
 	<link rel="stylesheet" href="${styleUri}">
 </head>

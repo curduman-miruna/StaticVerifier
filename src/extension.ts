@@ -11,18 +11,11 @@ import { computeSourceCounts, validateBeforeSave } from './host/contracts/source
 import { findTrackedLocalContractUris } from './host/contracts/findTrackedLocalContractUris';
 import { formatVerificationSummary, runContractVerification } from './host/verification/verifier';
 import { getPopupWebviewHtml } from './host/webviewHtml';
-import type { PopupMessage } from './shared/messages';
+import type { PopupMessage, VerificationIssue } from './shared/messages';
 
 const DIAGNOSTIC_COLLECTION = 'staticverifier';
 const VERIFICATION_MODE_SETTING = 'verificationMode';
 type VerificationMode = 'auto' | 'manual';
-type VerificationIssue = {
-	file: string;
-	line: number;
-	column: number;
-	severity: 'error' | 'warning' | 'info';
-	message: string;
-};
 
 function getVerificationMode(): VerificationMode {
 	const mode = vscode.workspace
@@ -31,31 +24,12 @@ function getVerificationMode(): VerificationMode {
 	return mode === 'manual' ? 'manual' : 'auto';
 }
 
-function getSeverityLabel(severity: vscode.DiagnosticSeverity): 'error' | 'warning' | 'info' {
-	if (severity === vscode.DiagnosticSeverity.Error) {
-		return 'error';
-	}
-	if (severity === vscode.DiagnosticSeverity.Warning) {
-		return 'warning';
-	}
-	return 'info';
+function isExtensionEnabled(): boolean {
+	return vscode.workspace.getConfiguration('staticverifier').get<boolean>('enable', true);
 }
 
-function buildVerificationIssues(collection: vscode.DiagnosticCollection): VerificationIssue[] {
-	const issues: VerificationIssue[] = [];
-	collection.forEach((uri, diagnostics) => {
-		const file = uri.scheme === 'file' ? (vscode.workspace.asRelativePath(uri, false) || uri.fsPath) : uri.toString();
-		for (const diagnostic of diagnostics) {
-			issues.push({
-				file,
-				line: diagnostic.range.start.line + 1,
-				column: diagnostic.range.start.character + 1,
-				severity: getSeverityLabel(diagnostic.severity),
-				message: diagnostic.message
-			});
-		}
-	});
-	return issues.sort((a, b) => {
+function sortVerificationIssues(issues: VerificationIssue[]): VerificationIssue[] {
+	return [...issues].sort((a, b) => {
 		const fileOrder = a.file.localeCompare(b.file);
 		if (fileOrder !== 0) {
 			return fileOrder;
@@ -69,19 +43,29 @@ function buildVerificationIssues(collection: vscode.DiagnosticCollection): Verif
 
 export function activate(context: vscode.ExtensionContext) {
 	const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_COLLECTION);
-
-	const helloWorld = vscode.commands.registerCommand('staticverifier.helloWorld', () => {
-		vscode.window.showInformationMessage('Hello World from StaticVerifier!');
-	});
+	const revealProblemsIfNeeded = async (issueCount: number) => {
+		if (issueCount > 0) {
+			await vscode.commands.executeCommand('workbench.actions.view.problems');
+		}
+	};
 
 	const verifyContracts = vscode.commands.registerCommand('staticverifier.verifyContracts', async () => {
-		await runContractVerification(diagnostics, true);
+		if (!isExtensionEnabled()) {
+			vscode.window.showInformationMessage('StaticVerifier is disabled via staticverifier.enable.');
+			return;
+		}
+		const summary = await runContractVerification(diagnostics, true);
+		await revealProblemsIfNeeded(summary.totalIssues);
 	});
 
-	const openPopupMockup = vscode.commands.registerCommand('staticverifier.openPopupMockup', () => {
+	const openInterface = vscode.commands.registerCommand('staticverifier.openInterface', () => {
+		if (!isExtensionEnabled()) {
+			vscode.window.showInformationMessage('StaticVerifier is disabled via staticverifier.enable.');
+			return;
+		}
 		const panel = vscode.window.createWebviewPanel(
 			'staticVerifierPopupMockup',
-			'StaticVerifier',
+			'StaticVerifier Interface',
 			vscode.ViewColumn.One,
 			{
 				enableScripts: true,
@@ -102,6 +86,14 @@ export function activate(context: vscode.ExtensionContext) {
 		});
 
 		const onMessage = panel.webview.onDidReceiveMessage(async (message: PopupMessage) => {
+			if (!isExtensionEnabled() && message.type !== 'browseLocal') {
+				await panel.webview.postMessage({
+					type: 'actionResult',
+					text: 'StaticVerifier is disabled via staticverifier.enable.'
+				});
+				return;
+			}
+
 			if (!message || typeof message !== 'object') {
 				return;
 			}
@@ -169,6 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (message.type === 'verifyContracts') {
 				const summary = await runContractVerification(diagnostics, false);
 				const summaryText = formatVerificationSummary(summary);
+				await revealProblemsIfNeeded(summary.totalIssues);
 				await panel.webview.postMessage({
 					type: 'actionResult',
 					text: summaryText
@@ -176,7 +169,7 @@ export function activate(context: vscode.ExtensionContext) {
 				await panel.webview.postMessage({
 					type: 'verificationReport',
 					summaryText,
-					issues: buildVerificationIssues(diagnostics)
+					issues: sortVerificationIssues(summary.issues)
 				});
 				return;
 			}
@@ -184,24 +177,27 @@ export function activate(context: vscode.ExtensionContext) {
 			if (message.type === 'discoverApis') {
 				const tempDiagnostics = vscode.languages.createDiagnosticCollection(`${DIAGNOSTIC_COLLECTION}-discovery-temp`);
 				try {
-					const frontendFiles = await loadConfiguredContracts('frontend', tempDiagnostics);
-					const items = frontendFiles.flatMap((file) =>
-						file.endpoints.map((endpoint) => ({
+					const [frontendFiles, backendFiles] = await Promise.all([
+						loadConfiguredContracts('frontend', tempDiagnostics),
+						loadConfiguredContracts('backend', tempDiagnostics)
+					]);
+					const toItems = (side: 'frontend' | 'backend', files: Awaited<ReturnType<typeof loadConfiguredContracts>>) =>
+						files.flatMap((file) => file.endpoints.map((endpoint) => ({
 							uri: file.uri.toString(),
 							method: endpoint.method.toUpperCase(),
 							path: endpoint.path,
 							requestSchema: endpoint.requestSchema,
 							responseSchema: endpoint.responseSchema,
+							side,
 							source: file.uri.scheme === 'file'
 								? (vscode.workspace.asRelativePath(file.uri, false) || file.uri.fsPath)
 								: file.uri.toString(),
 							line: endpoint.sourceLine ?? 1,
 							column: endpoint.sourceColumn ?? 1
-						}))
-					);
+						})));
 					await panel.webview.postMessage({
 						type: 'discoveredApis',
-						items
+						items: [...toItems('frontend', frontendFiles), ...toItems('backend', backendFiles)]
 					});
 				} finally {
 					tempDiagnostics.dispose();
@@ -234,6 +230,11 @@ export function activate(context: vscode.ExtensionContext) {
 	const statusBarIcon = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 101);
 	const statusBarMode = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	const updateStatusBar = () => {
+		if (!isExtensionEnabled()) {
+			statusBarMode.text = 'StaticVerifier: Disabled';
+			statusBarMode.tooltip = 'StaticVerifier is disabled by staticverifier.enable.';
+			return;
+		}
 		const mode = getVerificationMode();
 		statusBarMode.text = mode === 'auto' ? 'StaticVerifier: Auto' : 'StaticVerifier: Manual';
 		statusBarMode.tooltip = mode === 'auto'
@@ -242,8 +243,8 @@ export function activate(context: vscode.ExtensionContext) {
 	};
 	updateStatusBar();
 	statusBarIcon.text = '$(list-unordered)';
-	statusBarIcon.tooltip = 'Open StaticVerifier panel';
-	statusBarIcon.command = 'staticverifier.openPopupMockup';
+	statusBarIcon.tooltip = 'Open StaticVerifier interface';
+	statusBarIcon.command = 'staticverifier.openInterface';
 	statusBarMode.command = 'staticverifier.configureVerificationMode';
 	statusBarIcon.show();
 	statusBarMode.show();
@@ -282,12 +283,15 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const onConfigChange = vscode.workspace.onDidChangeConfiguration((event) => {
-		if (event.affectsConfiguration(`staticverifier.${VERIFICATION_MODE_SETTING}`)) {
+		if (event.affectsConfiguration('staticverifier.enable') || event.affectsConfiguration(`staticverifier.${VERIFICATION_MODE_SETTING}`)) {
 			updateStatusBar();
 		}
 	});
 
 	const onSave = vscode.workspace.onDidSaveTextDocument(async (document) => {
+		if (!isExtensionEnabled()) {
+			return;
+		}
 		if (getVerificationMode() === 'manual') {
 			return;
 		}
@@ -302,9 +306,8 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	context.subscriptions.push(
-		helloWorld,
 		verifyContracts,
-		openPopupMockup,
+		openInterface,
 		configureVerificationMode,
 		statusBarIcon,
 		statusBarMode,
@@ -314,4 +317,4 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-export function deactivate() {}
+export function deactivate() { }

@@ -43,24 +43,24 @@ async function main() {
 		external: ['vscode']
 	});
 
-	const popupCtx = await esbuild.context({
+	const interfaceCtx = await esbuild.context({
 		...common,
-		entryPoints: ['src/popup/main.tsx'],
+		entryPoints: ['src/interface/main.tsx'],
 		format: 'iife',
 		platform: 'browser',
-		outfile: 'dist/popup.js',
+		outfile: 'dist/interface.js',
 		loader: {
 			'.css': 'css'
 		}
 	});
 
 	if (watch) {
-		await Promise.all([extensionCtx.watch(), popupCtx.watch()]);
+		await Promise.all([extensionCtx.watch(), interfaceCtx.watch()]);
 		return;
 	}
 
-	await Promise.all([extensionCtx.rebuild(), popupCtx.rebuild()]);
-	await Promise.all([extensionCtx.dispose(), popupCtx.dispose()]);
+	await Promise.all([extensionCtx.rebuild(), interfaceCtx.rebuild()]);
+	await Promise.all([extensionCtx.dispose(), interfaceCtx.dispose()]);
 }
 
 main().catch((error) => {

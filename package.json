@@ -5,32 +5,27 @@
   "description": "A static verifier of contract between FE and BE requests",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:staticverifier.helloWorld",
+    "onCommand:staticverifier.openInterface",
     "onCommand:staticverifier.verifyContracts",
-    "onCommand:staticverifier.openPopupMockup",
     "onCommand:staticverifier.configureVerificationMode"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "staticverifier.helloWorld",
-        "title": "StaticVerifier: Hello World"
-      },
-      {
         "command": "staticverifier.verifyContracts",
         "title": "StaticVerifier: Verify Contracts"
       },
       {
-        "command": "staticverifier.openPopupMockup",
-        "title": "StaticVerifier: Open Popup Mockup"
+        "command": "staticverifier.openInterface",
+        "title": "StaticVerifier: Open Interface"
       },
       {
         "command": "staticverifier.configureVerificationMode",
@@ -105,7 +100,7 @@
         "staticverifier.frontendContractGitHubUrl": {
           "type": "string",
           "default": "",
-          "description": "GitHub URL for frontend contract JSON. Supports github.com/.../blob/... and raw.githubusercontent.com URLs."
+          "description": "GitHub URL for frontend contract JSON file. Supports github.com/.../blob/... and raw.githubusercontent.com/... file URLs."
         },
         "staticverifier.frontendContractGitHubUrls": {
           "type": "array",
@@ -113,7 +108,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "List of frontend GitHub URLs for contract JSON files."
+          "description": "List of frontend GitHub file URLs for contract JSON files (blob/raw only)."
         },
         "staticverifier.frontendDiscoveryFetchFunctions": {
           "type": "array",
@@ -261,7 +256,7 @@
         "staticverifier.backendContractGitHubUrl": {
           "type": "string",
           "default": "",
-          "description": "GitHub URL for backend contract JSON. Supports github.com/.../blob/... and raw.githubusercontent.com URLs."
+          "description": "GitHub URL for backend contract JSON file. Supports github.com/.../blob/... and raw.githubusercontent.com/... file URLs."
         },
         "staticverifier.backendContractGitHubUrls": {
           "type": "array",
@@ -269,20 +264,18 @@
             "type": "string"
           },
           "default": [],
-          "description": "List of backend GitHub URLs for contract JSON files."
+          "description": "List of backend GitHub file URLs for contract JSON files (blob/raw only)."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && npm run tailwind:build && node esbuild.js",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
-    "watch:tailwind": "npm run tailwind:build -- --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && npm run tailwind:build && node esbuild.js --production",
-    "tailwind:build": "tailwindcss -c tailwind.config.cjs -i ./src/popup/styles/tailwind.css -o ./src/popup/styles/tailwind.generated.css",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "test:unit": "npm run compile-tests && node --test \"out/test/unit/**/*.test.js\"",
@@ -295,7 +288,6 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.2.4",
     "@types/jest": "^30.0.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.17",
@@ -304,12 +296,9 @@
     "@types/vscode": "^1.115.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
-    "autoprefixer": "^10.5.0",
     "esbuild": "^0.27.3",
     "eslint": "^9.39.3",
     "npm-run-all": "^4.1.5",
-    "postcss": "^8.5.10",
-    "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
   },
