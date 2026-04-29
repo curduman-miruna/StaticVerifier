@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod } from '../../interface/app/components/DiscoveryPanel';
+import { filterGroups, getFileName, groupBySource, METHOD_STYLES, normalizeMethod, resolveFieldLocation } from '../../interface/app/components/DiscoveryPanel';
 
 type ApiItem = {
 	uri: string;
@@ -87,4 +87,30 @@ test('METHOD_STYLES keep expected short labels', () => {
 	assert.equal(METHOD_STYLES.GET.label, 'GET');
 	assert.equal(METHOD_STYLES.DELETE.label, 'DEL');
 	assert.equal(METHOD_STYLES.OPTIONS.label, 'OPT');
+});
+
+test('resolveFieldLocation falls back to endpoint source when exact field usage is missing', () => {
+	const location = resolveFieldLocation(
+		{
+			uri: 'file:///a.ts',
+			method: 'GET',
+			path: '/api/me',
+			side: 'frontend',
+			source: 'src/api/a.ts',
+			line: 15,
+			column: 4
+		},
+		'response',
+		'provider'
+	);
+
+	assert.deepEqual(location, {
+		uri: 'file:///a.ts',
+		line: 15,
+		column: 4,
+		method: 'GET',
+		path: '/api/me',
+		side: 'frontend',
+		highlightText: 'provider'
+	});
 });

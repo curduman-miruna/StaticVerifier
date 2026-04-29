@@ -11,10 +11,12 @@ import { computeSourceCounts, validateBeforeSave } from './host/contracts/source
 import { findTrackedLocalContractUris } from './host/contracts/findTrackedLocalContractUris';
 import { formatVerificationSummary, runContractVerification } from './host/verification/verifier';
 import { getPopupWebviewHtml } from './host/webviewHtml';
-import type { PopupMessage, VerificationIssue } from './shared/messages';
+import type { PopupMessage, SourceRevealTarget, VerificationIssue } from './shared/messages';
 
 const DIAGNOSTIC_COLLECTION = 'staticverifier';
 const VERIFICATION_MODE_SETTING = 'verificationMode';
+const GROQ_API_KEY_ENV = 'STATICVERIFIER_GROQ_API_KEY';
+const GROQ_LIMIT_REACHED_MESSAGE = 'StaticVerifier AI limit reached. This extension uses a shared Groq quota, so no more AI explanations can be generated right now. Please try again later.';
 type VerificationMode = 'auto' | 'manual';
 
 function getVerificationMode(): VerificationMode {
@@ -43,9 +45,55 @@ function sortVerificationIssues(issues: VerificationIssue[]): VerificationIssue[
 
 export function activate(context: vscode.ExtensionContext) {
 	const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_COLLECTION);
+	const revealDecoration = vscode.window.createTextEditorDecorationType({
+		backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
+		border: '1px solid',
+		borderColor: new vscode.ThemeColor('editor.findMatchBorder'),
+		isWholeLine: true,
+		overviewRulerColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
+		overviewRulerLane: vscode.OverviewRulerLane.Center
+	});
+	let revealEditors: vscode.TextEditor[] = [];
 	const revealProblemsIfNeeded = async (issueCount: number) => {
 		if (issueCount > 0) {
 			await vscode.commands.executeCommand('workbench.actions.view.problems');
+		}
+	};
+	const clearRevealHighlights = () => {
+		for (const editor of revealEditors) {
+			editor.setDecorations(revealDecoration, []);
+		}
+		revealEditors = [];
+	};
+	const buildRevealRange = (document: vscode.TextDocument, target: SourceRevealTarget): vscode.Range => {
+		const line = Math.min(Math.max(0, target.line - 1), Math.max(0, document.lineCount - 1));
+		const textLine = document.lineAt(line);
+		const column = Math.min(Math.max(0, target.column - 1), textLine.text.length);
+		const tokenLength = Math.max(1, target.highlightText?.length ?? target.path?.length ?? 1);
+		const endColumn = Math.min(textLine.text.length, column + tokenLength);
+		if (endColumn > column) {
+			return new vscode.Range(line, column, line, endColumn);
+		}
+		return textLine.range;
+	};
+	const revealSourceLocations = async (locations: SourceRevealTarget[]) => {
+		clearRevealHighlights();
+		for (const [index, location] of locations.entries()) {
+			const uri = vscode.Uri.parse(location.uri);
+			const document = await vscode.workspace.openTextDocument(uri);
+			const editor = await vscode.window.showTextDocument(document, {
+				preview: false,
+				preserveFocus: true,
+				viewColumn: locations.length > 1
+					? (index === 0 ? vscode.ViewColumn.Two : vscode.ViewColumn.Three)
+					: vscode.ViewColumn.Beside
+			});
+			const range = buildRevealRange(document, location);
+			const position = range.start;
+			editor.selection = new vscode.Selection(position, position);
+			editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+			editor.setDecorations(revealDecoration, [range]);
+			revealEditors.push(editor);
 		}
 	};
 
@@ -188,6 +236,14 @@ export function activate(context: vscode.ExtensionContext) {
 							path: endpoint.path,
 							requestSchema: endpoint.requestSchema,
 							responseSchema: endpoint.responseSchema,
+							requestHeaders: endpoint.requestHeaders,
+							fieldLocations: endpoint.fieldLocations?.map((location) => ({
+								...location,
+								uri: location.uri || file.uri.toString(),
+								method: endpoint.method.toUpperCase(),
+								path: endpoint.path,
+								side
+							})),
 							side,
 							source: file.uri.scheme === 'file'
 								? (vscode.workspace.asRelativePath(file.uri, false) || file.uri.fsPath)
@@ -207,19 +263,52 @@ export function activate(context: vscode.ExtensionContext) {
 
 			if (message.type === 'revealDiscoveredApi') {
 				try {
-					const uri = vscode.Uri.parse(message.uri);
-					const document = await vscode.workspace.openTextDocument(uri);
-					const editor = await vscode.window.showTextDocument(document, {
-						preview: false,
-						preserveFocus: false
-					});
-					const line = Math.max(0, message.line - 1);
-					const column = Math.max(0, message.column - 1);
-					const position = new vscode.Position(line, column);
-					editor.selection = new vscode.Selection(position, position);
-					editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+					await revealSourceLocations(message.locations?.length
+						? message.locations
+						: [{
+							uri: message.uri,
+							line: message.line,
+							column: message.column,
+							method: message.method,
+							path: message.path,
+							side: message.side,
+							highlightText: message.highlightText
+						}]);
 				} catch {
 					vscode.window.showWarningMessage('StaticVerifier could not open the source location for this discovered API.');
+				}
+			}
+
+			if (message.type === 'revealVerificationIssue') {
+				try {
+					await revealSourceLocations([{
+						uri: message.uri,
+						line: message.line,
+						column: message.column,
+						method: message.method,
+						path: message.path,
+						side: message.side,
+						highlightText: message.highlightText
+					}]);
+				} catch {
+					vscode.window.showWarningMessage('StaticVerifier could not open the source location for this verification issue.');
+				}
+			}
+
+			if (message.type === 'explainVerificationIssue') {
+				try {
+					const text = await explainIssueWithGroq(context, message.issue);
+					await panel.webview.postMessage({
+						type: 'aiExplanationResult',
+						requestId: message.requestId,
+						text
+					});
+				} catch (error) {
+					await panel.webview.postMessage({
+						type: 'aiExplanationResult',
+						requestId: message.requestId,
+						error: error instanceof Error ? error.message : 'Unable to generate AI explanation.'
+					});
 				}
 			}
 		});
@@ -305,6 +394,19 @@ export function activate(context: vscode.ExtensionContext) {
 		await runContractVerification(diagnostics, false);
 	});
 
+	const runStartupVerificationIfNeeded = async () => {
+		if (!isExtensionEnabled() || getVerificationMode() === 'manual') {
+			return;
+		}
+		const config = vscode.workspace.getConfiguration('staticverifier');
+		const frontend = getContractInputFromConfig(config, 'frontend');
+		const backend = getContractInputFromConfig(config, 'backend');
+		if (!isContractSourceConfigured(config, 'frontend', frontend) || !isContractSourceConfigured(config, 'backend', backend)) {
+			return;
+		}
+		await runContractVerification(diagnostics, false);
+	};
+
 	context.subscriptions.push(
 		verifyContracts,
 		openInterface,
@@ -313,8 +415,142 @@ export function activate(context: vscode.ExtensionContext) {
 		statusBarMode,
 		onConfigChange,
 		onSave,
+		revealDecoration,
 		diagnostics
 	);
+
+	void runStartupVerificationIfNeeded();
+}
+
+function getGroqApiKeyFromExtensionRuntime(): string | undefined {
+	const key = process.env[GROQ_API_KEY_ENV]?.trim();
+	return key ? key : undefined;
+}
+
+function parseGroqErrorDetail(detail: string): string {
+	if (!detail) {
+		return '';
+	}
+	try {
+		const payload = JSON.parse(detail) as {
+			error?: {
+				message?: string;
+				type?: string;
+				code?: string;
+			};
+		};
+		const message = payload.error?.message?.trim();
+		const type = payload.error?.type?.trim();
+		const code = payload.error?.code?.trim();
+		return [message, type, code].filter(Boolean).join(' | ').toLowerCase();
+	} catch {
+		return detail.toLowerCase();
+	}
+}
+
+function isGroqLimitError(status: number, detail: string): boolean {
+	if (status === 429) {
+		return true;
+	}
+	const text = parseGroqErrorDetail(detail);
+	return text.includes('rate_limit')
+		|| text.includes('rate limit')
+		|| text.includes('quota')
+		|| text.includes('insufficient_quota')
+		|| text.includes('limit reached');
+}
+
+function getContextSnippet(text: string, line: number, radius = 18): string {
+	const lines = text.split(/\r?\n/);
+	const start = Math.max(0, line - 1 - radius);
+	const end = Math.min(lines.length, line - 1 + radius + 1);
+	return lines
+		.slice(start, end)
+		.map((value, index) => `${start + index + 1}: ${value}`)
+		.join('\n');
+}
+
+async function readIssueContext(issue: VerificationIssue): Promise<string> {
+	if (!issue.uri) {
+		return 'No source URI was available for this issue.';
+	}
+	const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(issue.uri));
+	return [
+		`Source: ${issue.file}:${issue.line}:${issue.column}`,
+		`Side: ${issue.sourceSide}`,
+		`Endpoint: ${issue.method ?? '-'} ${issue.path ?? '-'}`,
+		'Nearby source:',
+		'```',
+		getContextSnippet(document.getText(), issue.line),
+		'```'
+	].join('\n');
+}
+
+function buildGroqPrompt(issue: VerificationIssue, context: string): string {
+	return [
+		'You are explaining a static API contract verification issue to a developer.',
+		'Use the provided source context and issue data. Be specific, concise, and actionable.',
+		'Explain what is wrong, the likely root cause, whether it may be a false positive, and what exact code/config to inspect.',
+		'Do not invent files or behavior that is not supported by the context.',
+		'',
+		'Issue:',
+		JSON.stringify({
+			kind: issue.kind,
+			severity: issue.severity,
+			message: issue.message,
+			method: issue.method,
+			path: issue.path,
+			sourceSide: issue.sourceSide,
+			headerDiffs: issue.headerDiffs,
+			schemaDiffs: issue.schemaDiffs
+		}, null, 2),
+		'',
+		context
+	].join('\n');
+}
+
+async function explainIssueWithGroq(context: vscode.ExtensionContext, issue: VerificationIssue): Promise<string> {
+	const key = getGroqApiKeyFromExtensionRuntime();
+	if (!key) {
+		throw new Error('StaticVerifier AI is not configured by this extension build. The Groq key must be provided by the extension runtime.');
+	}
+	const model = vscode.workspace.getConfiguration('staticverifier').get<string>('groqModel', 'llama-3.1-8b-instant');
+	const sourceContext = await readIssueContext(issue);
+	const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${key}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			model,
+			temperature: 0.2,
+			max_tokens: 700,
+			messages: [
+				{
+					role: 'system',
+					content: 'You are a senior engineer helping debug frontend/backend API contract mismatches.'
+				},
+				{
+					role: 'user',
+					content: buildGroqPrompt(issue, sourceContext)
+				}
+			]
+		})
+	});
+	if (!response.ok) {
+		const detail = await response.text().catch(() => '');
+		if (isGroqLimitError(response.status, detail)) {
+			throw new Error(GROQ_LIMIT_REACHED_MESSAGE);
+		}
+		throw new Error(`Groq request failed (${response.status}). ${detail.slice(0, 300)}`.trim());
+	}
+	const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+	const content = payload.choices?.[0]?.message?.content?.trim();
+	if (!content) {
+		throw new Error('Groq returned an empty explanation.');
+	}
+	return content;
 }
 
 export function deactivate() { }

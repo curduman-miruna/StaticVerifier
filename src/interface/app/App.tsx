@@ -6,7 +6,29 @@ import { Badge, Button, Card } from './components/ui';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
 import { ContractInput, ContractSourceEntry, InitialState } from './types/messages';
-import type { VerificationIssue } from '../../shared/messages';
+import type { SchemaFieldSourceLocation, VerificationIssue } from '../../shared/messages';
+
+type DiscoveredApi = {
+	uri: string;
+	method: string;
+	path: string;
+	requestSchema?: string;
+	responseSchema?: string;
+	requestHeaders?: string[];
+	fieldLocations?: SchemaFieldSourceLocation[];
+	side: 'frontend' | 'backend';
+	source: string;
+	line: number;
+	column: number;
+	highlightText?: string;
+	skipCounterpartReveal?: boolean;
+};
+
+type AiExplanationState = {
+	status: 'loading' | 'done' | 'error';
+	text?: string;
+	error?: string;
+};
 
 function createEntry(type: ContractSourceEntry['type'], value: string): ContractSourceEntry {
 	return { type, value };
@@ -23,6 +45,22 @@ function cleanEntries(entries: ContractSourceEntry[]): ContractSourceEntry[] {
 		.map((entry) => ({ ...entry, value: entry.value.trim() }))
 		.filter((entry) => entry.value.length > 0);
 	return cleaned.length > 0 ? cleaned : [createEntry('local', '')];
+}
+
+function normalizeApiPath(rawPath: string): string {
+	const noQuery = rawPath.trim().split(/[?#]/)[0];
+	const normalizedParams = noQuery
+		.replace(/\/\{[^/}]+\}/g, '/{param}')
+		.replace(/\/:[^/]+/g, '/{param}');
+	const collapsed = normalizedParams.replace(/\/+/g, '/');
+	if (collapsed.length > 1 && collapsed.endsWith('/')) {
+		return collapsed.slice(0, -1);
+	}
+	return collapsed;
+}
+
+function apiMatchKey(item: Pick<DiscoveredApi, 'method' | 'path'>): string {
+	return `${item.method.toUpperCase()} ${normalizeApiPath(item.path)}`;
 }
 
 function getInitialState(): InitialState {
@@ -55,19 +93,10 @@ export default function App() {
 	const [countStatus, setCountStatus] = useState<'idle' | 'loading' | 'done'>('idle');
 	const [isDirty, setIsDirty] = useState(false);
 	const [verificationIssues, setVerificationIssues] = useState<VerificationIssue[]>([]);
-	const [discoveredApis, setDiscoveredApis] = useState<Array<{
-		uri: string;
-		method: string;
-		path: string;
-		requestSchema?: string;
-		responseSchema?: string;
-		side: 'frontend' | 'backend';
-		source: string;
-		line: number;
-		column: number;
-	}>>([]);
+	const [discoveredApis, setDiscoveredApis] = useState<DiscoveredApi[]>([]);
 	const [isDiscoveringApis, setIsDiscoveringApis] = useState(false);
 	const [lastScannedAt, setLastScannedAt] = useState<Date | undefined>(undefined);
+	const [aiExplanations, setAiExplanations] = useState<Record<string, AiExplanationState>>({});
 
 	useHostMessage((message) => {
 		if (message.type === 'actionResult') {
@@ -111,6 +140,16 @@ export default function App() {
 			setSourceCounts(next);
 			setCountStatus('done');
 			setLastScannedAt(new Date());
+			return;
+		}
+
+		if (message.type === 'aiExplanationResult') {
+			setAiExplanations((current) => ({
+				...current,
+				[message.requestId]: message.error
+					? { status: 'error', error: message.error }
+					: { status: 'done', text: message.text ?? '' }
+			}));
 			return;
 		}
 
@@ -171,16 +210,65 @@ export default function App() {
 		postToHost({ type: 'discoverApis' });
 	};
 
-	const revealDiscoveredApi = (item: {
-		uri: string;
-		line: number;
-		column: number;
-	}) => {
+	const revealDiscoveredApi = (item: DiscoveredApi) => {
+		const selectedKey = apiMatchKey(item);
+		const counterpart = discoveredApis.find((candidate) =>
+			candidate.side !== item.side
+			&& apiMatchKey(candidate) === selectedKey
+		);
+		const ordered = [item, item.skipCounterpartReveal ? undefined : counterpart]
+			.filter((location): location is DiscoveredApi => Boolean(location))
+			.sort((a, b) => {
+				if (a.side === b.side) {
+					return 0;
+				}
+				return a.side === 'frontend' ? -1 : 1;
+			});
 		postToHost({
 			type: 'revealDiscoveredApi',
 			uri: item.uri,
 			line: item.line,
-			column: item.column
+			column: item.column,
+			method: item.method,
+			path: item.path,
+			side: item.side,
+			locations: ordered.map((location) => ({
+				uri: location.uri,
+				line: location.line,
+				column: location.column,
+				method: location.method,
+				path: location.path,
+				side: location.side,
+				highlightText: location.highlightText
+			}))
+		});
+	};
+
+	const revealVerificationIssue = (issue: VerificationIssue) => {
+		if (!issue.uri) {
+			return;
+		}
+		postToHost({
+			type: 'revealVerificationIssue',
+			uri: issue.uri,
+			line: issue.line,
+			column: issue.column,
+			method: issue.method,
+			path: issue.path,
+			side: issue.sourceSide,
+			highlightText: issue.path
+		});
+	};
+
+	const explainVerificationIssue = (requestId: string, issue: VerificationIssue) => {
+		setAiExplanations((current) => ({
+			...current,
+			[requestId]: { status: 'loading' }
+		}));
+		postToHost({
+			type: 'explainVerificationIssue',
+			requestId,
+			issue
 		});
 	};
 
@@ -221,11 +309,11 @@ export default function App() {
 	const frontendFiles = getSideFileTotal('frontend', frontend);
 	const backendFiles = getSideFileTotal('backend', backend);
 	const mode = isEditMode ? 'configure' : 'monitor';
-	const hasVerificationErrors =
-		output.toLowerCase().includes('failed') || verificationIssues.some((issue) => issue.severity === 'error');
+	const hasRuntimeError = output.toLowerCase().includes('failed');
+	const headerErrorDetail = hasRuntimeError ? output : undefined;
 	const headerStatus: 'ready' | 'scanning' | 'error' | 'unconfigured' = !hasConfiguredPaths
 		? 'unconfigured'
-		: hasVerificationErrors
+		: hasRuntimeError
 			? 'error'
 			: 'ready';
 	const isHeaderScanning = isSaving || countStatus === 'loading' || isDiscoveringApis;
@@ -252,6 +340,7 @@ export default function App() {
 				mode={mode}
 				onModeChange={(nextMode) => setIsEditMode(nextMode === 'configure')}
 				isScanning={isHeaderScanning}
+				statusDetail={headerErrorDetail}
 			/>
 			<main className="panel panel-after-header">
 
@@ -343,6 +432,9 @@ export default function App() {
 						discoveredApis={discoveredApis}
 						isDiscovering={isDiscoveringApis}
 						onRescan={handleMonitorRescan}
+						onRevealIssue={revealVerificationIssue}
+						onExplainIssue={explainVerificationIssue}
+						aiExplanations={aiExplanations}
 						onRevealDiscoveredApi={revealDiscoveredApi}
 						onRefreshDiscovery={discoverApis}
 					/>

@@ -6,7 +6,8 @@ import type {
 	ParsedContractFile,
 	VerificationSummary
 } from '../contracts/internalTypes';
-import type { SchemaDiff, SchemaFieldDiff, VerificationIssue, VerificationIssueKind } from '../../shared/messages';
+import type { SchemaDiff, VerificationIssue, VerificationIssueKind } from '../../shared/messages';
+import { compareSchemaStrings } from './schemaCompare';
 
 type NormalizedEndpointRecord = EndpointRecord & {
 	normalizedMethod: string;
@@ -24,6 +25,7 @@ export function formatVerificationSummary(summary: VerificationSummary): string 
 		`- Missing in BE: ${summary.missingBackend}`,
 		`- Request schema mismatches: ${summary.requestMismatches}`,
 		`- Response schema mismatches: ${summary.responseMismatches}`,
+		`- Header mismatches: ${summary.headerMismatches}`,
 		`- BE-only endpoints: ${summary.backendOnly}`,
 		summary.totalIssues > 0 ? 'Check the Problems panel for file-level details.' : 'No mismatches found.'
 	].join('\n');
@@ -48,13 +50,15 @@ export async function runContractVerification(
 
 	const frontendRecords = normalizeEndpointRecords(flattenEndpointRecords(frontendFiles), 'frontend');
 	const backendRecords = normalizeEndpointRecords(flattenEndpointRecords(backendFiles), 'backend');
+	const frontendByKey = aggregateEndpointRecordsByKey(frontendRecords.valid);
+	const backendByKey = aggregateEndpointRecordsByKey(backendRecords.valid);
 	const diagnosticsByFile = new Map<string, vscode.Diagnostic[]>();
 	const issues: VerificationIssue[] = [];
-	const backendByKey = new Map<string, NormalizedEndpointRecord>();
 	let matchedEndpoints = 0;
 	let missingBackend = 0;
 	let requestMismatches = 0;
 	let responseMismatches = 0;
+	let headerMismatches = 0;
 	let backendOnly = 0;
 
 	collectInvalidEndpointIssues(frontendRecords.invalid, 'frontend', diagnosticsByFile, issues);
@@ -63,15 +67,7 @@ export async function runContractVerification(
 	collectDuplicateEndpointIssues(frontendRecords.valid, diagnosticsByFile, issues);
 	collectDuplicateEndpointIssues(backendRecords.valid, diagnosticsByFile, issues);
 
-	for (const record of backendRecords.valid) {
-		const key = endpointKey(record.endpoint);
-		if (!backendByKey.has(key)) {
-			backendByKey.set(key, record);
-		}
-	}
-
-	for (const record of frontendRecords.valid) {
-		const key = endpointKey(record.endpoint);
+	for (const [key, record] of frontendByKey) {
 		const backendRecord = backendByKey.get(key);
 		if (!backendRecord) {
 			missingBackend += 1;
@@ -99,7 +95,7 @@ export async function runContractVerification(
 		if (!requestComparison.equal) {
 			requestMismatches += 1;
 			hasMismatch = true;
-			const message = `Request schema mismatch for ${key}: FE="${record.endpoint.requestSchema ?? '-'}", BE="${backendRecord.endpoint.requestSchema ?? '-'}".`;
+			const message = `Request schema mismatch for ${key}: frontend sends "${record.endpoint.requestSchema ?? '-'}", backend expects "${backendRecord.endpoint.requestSchema ?? '-'}".`;
 			pushDiagnosticAndIssue(
 				diagnosticsByFile,
 				issues,
@@ -123,7 +119,7 @@ export async function runContractVerification(
 		if (!responseComparison.equal) {
 			responseMismatches += 1;
 			hasMismatch = true;
-			const message = `Response schema mismatch for ${key}: FE="${record.endpoint.responseSchema ?? '-'}", BE="${backendRecord.endpoint.responseSchema ?? '-'}".`;
+			const message = `Response schema mismatch for ${key}: backend returns "${backendRecord.endpoint.responseSchema ?? '-'}", frontend expects "${record.endpoint.responseSchema ?? '-'}".`;
 			pushDiagnosticAndIssue(
 				diagnosticsByFile,
 				issues,
@@ -139,14 +135,34 @@ export async function runContractVerification(
 			);
 		}
 
+		const missingHeaders = findMissingHeaders(record.endpoint.requestHeaders, backendRecord.endpoint.requestHeaders);
+		if (missingHeaders.length > 0) {
+			headerMismatches += 1;
+			hasMismatch = true;
+			const message = `Header mismatch for ${key}: frontend does not send required backend header(s): ${missingHeaders.join(', ')}.`;
+			pushDiagnosticAndIssue(
+				diagnosticsByFile,
+				issues,
+				record.uri,
+				buildDiagnostic(record.text, record.endpoint, message, vscode.DiagnosticSeverity.Error),
+				buildIssue(
+					record,
+					'header-mismatch',
+					vscode.DiagnosticSeverity.Error,
+					message,
+					undefined,
+					missingHeaders
+				)
+			);
+		}
+
 		if (!hasMismatch) {
 			matchedEndpoints += 1;
 		}
 	}
 
-	const frontendKeySet = new Set(frontendRecords.valid.map((record) => endpointKey(record.endpoint)));
-	for (const record of backendRecords.valid) {
-		const key = endpointKey(record.endpoint);
+	const frontendKeySet = new Set(frontendByKey.keys());
+	for (const [key, record] of backendByKey) {
 		if (frontendKeySet.has(key)) {
 			continue;
 		}
@@ -182,15 +198,66 @@ export async function runContractVerification(
 		missingBackend,
 		requestMismatches,
 		responseMismatches,
+		headerMismatches,
 		backendOnly,
 		totalIssues: total,
-		comparedFrontend: frontendRecords.valid.length,
+		comparedFrontend: frontendByKey.size,
 		issues
 	};
 }
 
 function endpointKey(endpoint: EndpointContract): string {
 	return `${endpoint.method.toUpperCase()} ${endpoint.path}`;
+}
+
+function aggregateEndpointRecordsByKey(records: NormalizedEndpointRecord[]): Map<string, NormalizedEndpointRecord> {
+	const byKey = new Map<string, NormalizedEndpointRecord>();
+	for (const record of records) {
+		const key = endpointKey(record.endpoint);
+		const existing = byKey.get(key);
+		if (!existing) {
+			byKey.set(key, {
+				...record,
+				endpoint: {
+					...record.endpoint,
+					requestHeaders: mergeHeaderLists(record.endpoint.requestHeaders)
+				}
+			});
+			continue;
+		}
+
+		existing.endpoint.requestHeaders = mergeHeaderLists(existing.endpoint.requestHeaders, record.endpoint.requestHeaders);
+		if (!existing.endpoint.requestSchema && record.endpoint.requestSchema) {
+			existing.endpoint.requestSchema = record.endpoint.requestSchema;
+		}
+		if (!existing.endpoint.responseSchema && record.endpoint.responseSchema) {
+			existing.endpoint.responseSchema = record.endpoint.responseSchema;
+		}
+	}
+	return byKey;
+}
+
+function mergeHeaderLists(...headers: Array<string[] | undefined>): string[] | undefined {
+	const merged = new Map<string, string>();
+	for (const header of headers.flatMap((item) => item ?? [])) {
+		const value = header.trim();
+		if (value) {
+			merged.set(value.toLowerCase(), value);
+		}
+	}
+	const values = Array.from(merged.values()).sort((a, b) => a.localeCompare(b));
+	return values.length > 0 ? values : undefined;
+}
+
+function findMissingHeaders(frontendHeaders: string[] | undefined, backendHeaders: string[] | undefined): string[] {
+	const frontend = new Set((frontendHeaders ?? []).map(normalizeHeaderName));
+	return (backendHeaders ?? [])
+		.filter((header) => !frontend.has(normalizeHeaderName(header)))
+		.sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeHeaderName(header: string): string {
+	return header.trim().toLowerCase();
 }
 
 function flattenEndpointRecords(files: ParsedContractFile[]): EndpointRecord[] {
@@ -408,12 +475,14 @@ function buildIssue(
 	kind: VerificationIssueKind,
 	severity: vscode.DiagnosticSeverity,
 	message: string,
-	schemaDiffs?: SchemaDiff[]
+	schemaDiffs?: SchemaDiff[],
+	headerDiffs?: string[]
 ): VerificationIssue {
 	const file = record.uri.scheme === 'file'
 		? (vscode.workspace.asRelativePath(record.uri, false) || record.uri.fsPath)
 		: record.uri.toString();
 	return {
+		uri: record.uri.toString(),
 		file,
 		line: record.endpoint.sourceLine ?? 1,
 		column: record.endpoint.sourceColumn ?? 1,
@@ -423,6 +492,7 @@ function buildIssue(
 		sourceSide: record.sourceSide,
 		method: record.endpoint.method,
 		path: record.endpoint.path,
+		headerDiffs,
 		schemaDiffs
 	};
 }
@@ -437,117 +507,3 @@ function getSeverityLabel(severity: vscode.DiagnosticSeverity): 'error' | 'warni
 	return 'info';
 }
 
-function compareSchemaStrings(
-	frontendSchema: string | undefined,
-	backendSchema: string | undefined,
-	scope: 'request' | 'response'
-): { equal: boolean; schemaDiffs?: SchemaDiff[] } {
-	const fe = (frontendSchema ?? '').trim();
-	const be = (backendSchema ?? '').trim();
-	if (fe === be) {
-		return { equal: true };
-	}
-
-	const feJson = tryParseSchemaJson(fe);
-	const beJson = tryParseSchemaJson(be);
-	if (!feJson || !beJson || feJson.kind !== 'object' || beJson.kind !== 'object') {
-		return { equal: false };
-	}
-
-	const fields = buildObjectFieldDiffs(feJson.value, beJson.value);
-	const hasRealDifference = fields.some((item) => item.status !== 'match');
-	if (!hasRealDifference) {
-		return { equal: true };
-	}
-
-	return {
-		equal: false,
-		schemaDiffs: [{
-			scope,
-			feLabel: frontendSchema,
-			beLabel: backendSchema,
-			fields
-		}]
-	};
-}
-
-function tryParseSchemaJson(schema: string): { kind: 'object' | 'array' | 'primitive'; value: unknown } | undefined {
-	if (!schema || (!schema.startsWith('{') && !schema.startsWith('['))) {
-		return undefined;
-	}
-	try {
-		const parsed = JSON.parse(schema) as unknown;
-		if (Array.isArray(parsed)) {
-			return { kind: 'array', value: parsed };
-		}
-		if (typeof parsed === 'object' && parsed !== null) {
-			return { kind: 'object', value: parsed };
-		}
-		return { kind: 'primitive', value: parsed };
-	} catch {
-		return undefined;
-	}
-}
-
-function buildObjectFieldDiffs(frontend: unknown, backend: unknown): SchemaFieldDiff[] {
-	const feObj = asObject(frontend);
-	const beObj = asObject(backend);
-	if (!feObj || !beObj) {
-		return [];
-	}
-
-	const keys = Array.from(new Set([...Object.keys(feObj), ...Object.keys(beObj)])).sort((a, b) => a.localeCompare(b));
-	return keys.map((key, index) => {
-		const feHas = Object.prototype.hasOwnProperty.call(feObj, key);
-		const beHas = Object.prototype.hasOwnProperty.call(beObj, key);
-		const feValue = feHas ? feObj[key] : undefined;
-		const beValue = beHas ? beObj[key] : undefined;
-
-		if (feHas && !beHas) {
-			return {
-				id: `${index}:${key}`,
-				status: 'fe-only',
-				fe: { key, type: inferJsonType(feValue), required: true }
-			};
-		}
-		if (!feHas && beHas) {
-			return {
-				id: `${index}:${key}`,
-				status: 'be-only',
-				be: { key, type: inferJsonType(beValue), required: true }
-			};
-		}
-
-		const feType = inferJsonType(feValue);
-		const beType = inferJsonType(beValue);
-		return {
-			id: `${index}:${key}`,
-			status: feType === beType ? 'match' : 'type-changed',
-			fe: { key, type: feType, required: true },
-			be: { key, type: beType, required: true }
-		};
-	});
-}
-
-function asObject(value: unknown): Record<string, unknown> | undefined {
-	if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return undefined;
-}
-
-function inferJsonType(value: unknown): string {
-	if (Array.isArray(value)) {
-		if (value.length === 0) {
-			return 'array<unknown>';
-		}
-		return `array<${inferJsonType(value[0])}>`;
-	}
-	if (value === null) {
-		return 'null';
-	}
-	if (typeof value === 'object') {
-		return 'object';
-	}
-	return typeof value;
-}

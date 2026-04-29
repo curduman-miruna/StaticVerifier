@@ -265,6 +265,11 @@
           },
           "default": [],
           "description": "List of backend GitHub file URLs for contract JSON files (blob/raw only)."
+        },
+        "staticverifier.groqModel": {
+          "type": "string",
+          "default": "llama-3.1-8b-instant",
+          "description": "Groq model used for AI explanations in the verification monitor."
         }
       }
     }

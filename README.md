@@ -37,6 +37,12 @@ Response model inference:
 - `StaticVerifier: Verify Contracts`
 - `StaticVerifier: Configure Verification Mode`
 
+## AI Explainer Key And Limits
+
+- The Groq API key is provided by the extension runtime, not entered by the user.
+- AI Explain calls use a shared extension quota.
+- When the shared limit is reached, AI explanations are blocked until quota/rate limits reset.
+
 ## Contract Format
 
 Each contract file must be JSON with an `endpoints` array:

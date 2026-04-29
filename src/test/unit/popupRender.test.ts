@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { HeaderBar } from '../../interface/app/components/HeaderBar';
 import { DiscoveryPanel } from '../../interface/app/components/DiscoveryPanel';
 import { SchemaDiffView } from '../../interface/app/components/SchemaDiffView';
-import { VerificationView, toMismatch } from '../../interface/app/components/VerificationView';
+import { VerificationView, explainMismatch, toMismatch } from '../../interface/app/components/VerificationView';
 import { Badge, Button, Card, Input } from '../../interface/app/components/ui';
 import { cx } from '../../interface/app/components/ui/cx';
 
@@ -44,6 +44,27 @@ test('HeaderBar renders status, metrics and toggle labels', () => {
 	assert.match(html, /Monitor/);
 	assert.match(html, /Configure/);
 	assert.match(html, /files indexed/);
+});
+
+test('HeaderBar shows error detail on error status hover', () => {
+	const html = renderToStaticMarkup(
+		createElement(HeaderBar, {
+			metrics: {
+				feSources: 1,
+				feIndexed: 12,
+				beSources: 2,
+				beIndexed: 8,
+				status: 'error'
+			},
+			mode: 'monitor',
+			onModeChange: () => undefined,
+			isScanning: false,
+			statusDetail: 'Missing backend endpoint for GET /api/users.'
+		})
+	);
+
+	assert.match(html, /Error/);
+	assert.match(html, /title="Missing backend endpoint for GET \/api\/users\."/);
 });
 
 test('DiscoveryPanel renders grouped endpoints and empty state', () => {
@@ -158,13 +179,40 @@ test('SchemaDiffView renders request/response scopes and field labels', () => {
 
 	assert.match(html, /Request Body/);
 	assert.match(html, /Response Body/);
+	assert.match(html, /Frontend sends/);
+	assert.match(html, /Backend expects/);
 	assert.match(html, /Frontend expects/);
-	assert.match(html, /Backend provides/);
-	assert.match(html, /Type changed/);
+	assert.match(html, /Backend returns/);
+	assert.match(html, /Type mismatch/);
+	assert.match(html, /Missing in BE/);
+});
+
+test('SchemaDiffView labels single request schemas as FE sends and BE expects', () => {
+	const html = renderToStaticMarkup(
+		createElement(SchemaDiffView, {
+			diffs: [
+				{
+					scope: 'request',
+					fields: [
+						{
+							id: '1',
+							status: 'be-only',
+							be: { key: 'group_name', type: 'string', required: true }
+						}
+					]
+				}
+			]
+		})
+	);
+
+	assert.match(html, /Frontend sends/);
+	assert.match(html, /Backend expects/);
+	assert.match(html, /Missing in FE/);
 });
 
 test('VerificationView renders mismatch state and toMismatch keeps schema diffs', () => {
 	const issue = {
+		uri: 'file:///src/api/users.ts',
 		file: 'src/api/users.ts',
 		line: 4,
 		column: 2,
@@ -189,13 +237,19 @@ test('VerificationView renders mismatch state and toMismatch keeps schema diffs'
 		]
 	};
 
-	const html = renderToStaticMarkup(createElement(VerificationView, { mismatches: [issue] }));
+	const html = renderToStaticMarkup(createElement(VerificationView, { mismatches: [issue], onRevealIssue: () => undefined }));
 	const emptyHtml = renderToStaticMarkup(createElement(VerificationView, { mismatches: [] }));
 	const mapped = toMismatch(issue, 0);
 
 	assert.match(html, /mismatch detected/);
 	assert.match(html, /Schema Mismatch/);
+	assert.match(html, /Open/);
 	assert.match(emptyHtml, /no mismatches found/i);
 	assert.ok(mapped.schemaDiffs);
 	assert.equal(mapped.schemaDiffs?.length, 1);
+	assert.equal(mapped.uri, 'file:///src/api/users.ts');
+	const explanation = explainMismatch(mapped);
+	assert.match(explanation.summary, /frontend and backend agree on the endpoint/i);
+	assert.match(explanation.impact, /wrong field name/i);
+	assert.match(explanation.nextStep, /field comparison/i);
 });

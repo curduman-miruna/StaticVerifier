@@ -18,6 +18,7 @@ type ParsedSummary = {
 	missingInBackend?: string;
 	requestMismatch?: string;
 	responseMismatch?: string;
+	headerMismatch?: string;
 	backendOnly?: string;
 	footer?: string;
 };
@@ -40,6 +41,7 @@ function parseSummary(text: string): ParsedSummary | undefined {
 		missingInBackend: valueOf('- Missing in BE:'),
 		requestMismatch: valueOf('- Request schema mismatches:'),
 		responseMismatch: valueOf('- Response schema mismatches:'),
+		headerMismatch: valueOf('- Header mismatches:'),
 		backendOnly: valueOf('- BE-only endpoints:'),
 		footer: lines[lines.length - 1]
 	};
@@ -94,12 +96,13 @@ export function OutputPanel({ text, issues = [] }: OutputPanelProps) {
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0 && !line.startsWith('Compared FE endpoints:') && !line.startsWith('Matches:') && !line.startsWith('Mismatches:') && !line.startsWith('-'));
 	const grouped = groupByFile(issues);
+	const outputTitle = tone === 'is-error' ? text.trim() : undefined;
 
 	return (
 		<section className={`results ${tone}`}>
 			<div className="results-header">
 				<h2>Verification Output</h2>
-				<Badge className="results-badge" variant={tone === 'is-error' ? 'danger' : tone === 'is-success' ? 'success' : 'info'}>
+				<Badge className="results-badge" variant={tone === 'is-error' ? 'danger' : tone === 'is-success' ? 'success' : 'info'} title={outputTitle}>
 					{tone === 'is-error' ? 'Error' : tone === 'is-success' ? 'OK' : 'Info'}
 				</Badge>
 			</div>
@@ -130,6 +133,10 @@ export function OutputPanel({ text, issues = [] }: OutputPanelProps) {
 						<strong>{parsed.responseMismatch ?? '-'}</strong>
 					</Card>
 					<Card className="result-metric">
+						<span className="metric-label">Headers</span>
+						<strong>{parsed.headerMismatch ?? '-'}</strong>
+					</Card>
+					<Card className="result-metric">
 						<span className="metric-label">BE only</span>
 						<strong>{parsed.backendOnly ?? '-'}</strong>
 					</Card>
@@ -152,7 +159,7 @@ export function OutputPanel({ text, issues = [] }: OutputPanelProps) {
 									<div className={`merge-row is-${issue.severity}`} key={`${group.file}-${issue.line}-${issue.column}-${index}`}>
 										<span className="merge-line">L{issue.line}:{issue.column}</span>
 										<span className="merge-msg">{issue.message}</span>
-										<span className="merge-severity">{issue.severity}</span>
+										<span className="merge-severity" title={issue.message}>{issue.severity}</span>
 									</div>
 								))}
 							</div>

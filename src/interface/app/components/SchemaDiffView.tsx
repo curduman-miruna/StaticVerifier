@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, Info, Minus, Plus, RefreshCw } from 'lucide-react';
-import type { SchemaDiff, SchemaField, SchemaFieldDiff, SchemaFieldStatus } from '../../../shared/messages';
+import type { SchemaDiff, SchemaField, SchemaFieldDiff, SchemaFieldStatus, SourceRevealTarget } from '../../../shared/messages';
 
 const statusConfig: Record<
 	SchemaFieldStatus,
@@ -76,16 +76,83 @@ const scopeConfig = {
 	response: { label: 'Response Body', icon: '<-', style: 'sv-schema-scope-response' }
 } as const;
 
+const sideLabels = {
+	request: {
+		fe: 'Frontend sends',
+		be: 'Backend expects'
+	},
+	response: {
+		fe: 'Frontend expects',
+		be: 'Backend returns'
+	},
+	combined: {
+		fe: 'Frontend schema',
+		be: 'Backend schema'
+	}
+} as const;
+
+const scopedStatusLabels: Record<SchemaDiff['scope'], Partial<Record<SchemaFieldStatus, string>>> = {
+	request: {
+		match: 'Send OK',
+		renamed: 'Mapped',
+		'type-changed': 'Type mismatch',
+		'fe-only': 'FE extra',
+		'be-only': 'Missing in FE',
+		'optional-mismatch': 'Req mismatch'
+	},
+	response: {
+		match: 'Return OK',
+		renamed: 'Mapped',
+		'type-changed': 'Type mismatch',
+		'fe-only': 'Missing in BE',
+		'be-only': 'BE extra',
+		'optional-mismatch': 'Req mismatch'
+	}
+};
+
+function statusLabel(status: SchemaFieldStatus, scope?: SchemaDiff['scope']): string {
+	return (scope ? scopedStatusLabels[scope][status] : undefined) ?? statusConfig[status].label;
+}
+
+function statusVisualConfig(status: SchemaFieldStatus, scope?: SchemaDiff['scope']) {
+	if (scope === 'response' && status === 'be-only') {
+		return {
+			...statusConfig[status],
+			beStyle: 'sv-schema-cell-warning',
+			iconClass: 'sv-schema-icon-warning',
+			badgeStyle: 'sv-schema-status-warning'
+		};
+	}
+	return statusConfig[status];
+}
+
+function formatFieldPath(key: string): ReactNode {
+	const segments = key.split('.');
+	return segments.map((segment, index) => {
+		const isArrayScope = segment.endsWith('[]');
+		const text = isArrayScope ? segment.slice(0, -2) : segment;
+		return (
+			<span key={`${segment}-${index}`} className={index > 0 ? 'sv-schema-path-nested' : undefined}>
+				{index > 0 ? <span className="sv-schema-path-separator">.</span> : null}
+				<span>{text}</span>
+				{isArrayScope ? <span className="sv-schema-array-scope">[]</span> : null}
+			</span>
+		);
+	});
+}
+
 function FieldCell({
 	field,
 	style,
 	status,
-	peer
+	peer,
+	onRevealField
 }: {
 	field?: SchemaField;
 	style: string;
 	status: SchemaFieldStatus;
 	peer?: SchemaField;
+	onRevealField?: (location: SourceRevealTarget) => void;
 }) {
 	if (!field) {
 		return (
@@ -99,11 +166,11 @@ function FieldCell({
 	const typeChanged = status === 'type-changed' && peer && field.type !== peer.type;
 	const optionalityMismatch = status === 'optional-mismatch' && peer && field.required !== peer.required;
 
-	return (
-		<div className={`sv-schema-field-cell ${style}`}>
+	const content = (
+		<>
 			<div className="sv-schema-field-main">
 				<code className={`sv-schema-field-key ${keyChanged ? 'sv-schema-mark-renamed' : ''}`}>
-					{field.key}
+					{formatFieldPath(field.key)}
 				</code>
 				{field.required ? (
 					<span className="sv-schema-required" title="Required">*</span>
@@ -122,7 +189,24 @@ function FieldCell({
 			{field.description ? (
 				<span className="sv-schema-field-description">{field.description}</span>
 			) : null}
-		</div>
+		</>
+	);
+
+	return (
+		field.location && onRevealField ? (
+			<button
+				type="button"
+				className={`sv-schema-field-cell sv-schema-field-button ${style}`}
+				title={`Open ${field.key} usage at line ${field.location.line}`}
+				onClick={() => onRevealField(field.location!)}
+			>
+				{content}
+			</button>
+		) : (
+			<div className={`sv-schema-field-cell ${style}`}>
+				{content}
+			</div>
+		)
 	);
 }
 
@@ -153,26 +237,40 @@ function Connector({ status }: { status: SchemaFieldStatus }) {
 	);
 }
 
-function FieldRow({ diff }: { diff: SchemaFieldDiff }) {
-	const cfg = statusConfig[diff.status];
+function FieldRow({
+	diff,
+	scope,
+	onRevealField
+}: {
+	diff: SchemaFieldDiff;
+	scope?: SchemaDiff['scope'];
+	onRevealField?: (location: SourceRevealTarget) => void;
+}) {
+	const cfg = statusVisualConfig(diff.status, scope);
+	const label = statusLabel(diff.status, scope);
 	return (
 		<div className="sv-schema-field-row">
-			<FieldCell field={diff.fe} style={diff.fe ? cfg.feStyle : ''} status={diff.status} peer={diff.be} />
+			<FieldCell field={diff.fe} style={diff.fe ? cfg.feStyle : ''} status={diff.status} peer={diff.be} onRevealField={onRevealField} />
 			<div className="sv-schema-connector-wrap">
 				<Connector status={diff.status} />
 			</div>
-			<FieldCell field={diff.be} style={diff.be ? cfg.beStyle : ''} status={diff.status} peer={diff.fe} />
+			<FieldCell field={diff.be} style={diff.be ? cfg.beStyle : ''} status={diff.status} peer={diff.fe} onRevealField={onRevealField} />
 			<div className="sv-schema-status-wrap">
+				{scope ? (
+					<span className={`sv-schema-row-scope ${scopeConfig[scope].style}`}>
+						{scope === 'request' ? 'REQ' : 'RES'}
+					</span>
+				) : null}
 				<span className={`sv-schema-status ${cfg.badgeStyle}`}>
 					<span className={cfg.iconClass}>{cfg.icon}</span>
-					{cfg.label}
+					{label}
 				</span>
 			</div>
 		</div>
 	);
 }
 
-function DiffSummary({ fields }: { fields: SchemaFieldDiff[] }) {
+function DiffSummary({ fields, scope }: { fields: SchemaFieldDiff[]; scope?: SchemaDiff['scope'] }) {
 	const counts = {
 		match: fields.filter((f) => f.status === 'match').length,
 		renamed: fields.filter((f) => f.status === 'renamed').length,
@@ -187,7 +285,7 @@ function DiffSummary({ fields }: { fields: SchemaFieldDiff[] }) {
 		{ key: 'renamed', label: 'renamed', style: 'sv-schema-summary-renamed' },
 		{ key: 'type-changed', label: 'type !=', style: 'sv-schema-summary-type' },
 		{ key: 'fe-only', label: 'FE only', style: 'sv-schema-summary-missing' },
-		{ key: 'be-only', label: 'BE only', style: 'sv-schema-summary-missing' },
+		{ key: 'be-only', label: scope === 'response' ? 'BE extra' : 'BE only', style: scope === 'response' ? 'sv-schema-summary-warning' : 'sv-schema-summary-missing' },
 		{ key: 'optional-mismatch', label: 'opt != req', style: 'sv-schema-summary-optional' }
 	] as const;
 
@@ -205,7 +303,32 @@ function DiffSummary({ fields }: { fields: SchemaFieldDiff[] }) {
 	);
 }
 
-function ScopeDiffBlock({ diff, defaultOpen }: { diff: SchemaDiff; defaultOpen?: boolean }) {
+function SchemaColumns({ labels }: { labels: { fe: string; be: string } }) {
+	return (
+		<div className="sv-schema-columns">
+			<div className="sv-schema-column">
+				<span className="sv-schema-side sv-schema-side-fe">FE</span>
+				<span>{labels.fe}</span>
+			</div>
+			<div className="sv-schema-connector-spacer" />
+			<div className="sv-schema-column">
+				<span className="sv-schema-side sv-schema-side-be">BE</span>
+				<span>{labels.be}</span>
+			</div>
+			<div className="sv-schema-status-spacer" />
+		</div>
+	);
+}
+
+function ScopeDiffBlock({
+	diff,
+	defaultOpen,
+	onRevealField
+}: {
+	diff: SchemaDiff;
+	defaultOpen?: boolean;
+	onRevealField?: (location: SourceRevealTarget) => void;
+}) {
 	const [open, setOpen] = useState(defaultOpen ?? true);
 	const cfg = scopeConfig[diff.scope];
 	const problemCount = diff.fields.filter((f) => f.status !== 'match').length;
@@ -227,7 +350,7 @@ function ScopeDiffBlock({ diff, defaultOpen }: { diff: SchemaDiff; defaultOpen?:
 						{problemCount} issue{problemCount !== 1 ? 's' : ''}
 					</span>
 				) : null}
-				{open ? <DiffSummary fields={diff.fields} /> : null}
+				{open ? <DiffSummary fields={diff.fields} scope={diff.scope} /> : null}
 				<div className="sv-schema-labels">
 					{diff.feLabel ? <code className="sv-schema-label">{diff.feLabel}</code> : null}
 					{diff.beLabel ? (
@@ -248,21 +371,10 @@ function ScopeDiffBlock({ diff, defaultOpen }: { diff: SchemaDiff; defaultOpen?:
 			</button>
 			{open ? (
 				<div className="sv-schema-body">
-					<div className="sv-schema-columns">
-						<div className="sv-schema-column">
-							<span className="sv-schema-side sv-schema-side-fe">FE</span>
-							<span>Frontend expects</span>
-						</div>
-						<div className="sv-schema-connector-spacer" />
-						<div className="sv-schema-column">
-							<span className="sv-schema-side sv-schema-side-be">BE</span>
-							<span>Backend provides</span>
-						</div>
-						<div className="sv-schema-status-spacer" />
-					</div>
+					<SchemaColumns labels={sideLabels[diff.scope]} />
 					<div className="sv-schema-fields">
 						{diff.fields.map((field) => (
-							<FieldRow key={field.id} diff={field} />
+							<FieldRow key={field.id} diff={field} scope={diff.scope} onRevealField={onRevealField} />
 						))}
 					</div>
 				</div>
@@ -271,11 +383,17 @@ function ScopeDiffBlock({ diff, defaultOpen }: { diff: SchemaDiff; defaultOpen?:
 	);
 }
 
-export function SchemaDiffView({ diffs }: { diffs: SchemaDiff[] }) {
+export function SchemaDiffView({
+	diffs,
+	onRevealField
+}: {
+	diffs: SchemaDiff[];
+	onRevealField?: (location: SourceRevealTarget) => void;
+}) {
 	return (
 		<div className="sv-schema-diff">
 			{diffs.map((diff, index) => (
-				<ScopeDiffBlock key={`${diff.scope}-${index}`} diff={diff} defaultOpen={index === 0} />
+				<ScopeDiffBlock key={`${diff.scope}-${index}`} diff={diff} defaultOpen onRevealField={onRevealField} />
 			))}
 		</div>
 	);

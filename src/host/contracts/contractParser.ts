@@ -29,7 +29,7 @@ export function parseContractText(
 			]);
 			return undefined;
 		}
-		const extractedEndpoints = extractBackendEndpointsFromCode(text);
+		const extractedEndpoints = extractBackendEndpointsFromCode(text, uri.scheme === 'file' ? uri.fsPath : undefined);
 		if (extractedEndpoints.length > 0) {
 			return { uri, text, endpoints: extractedEndpoints };
 		}
@@ -59,7 +59,10 @@ export function parseContractText(
 			method: endpoint.method,
 			path: endpoint.path,
 			requestSchema: typeof endpoint.requestSchema === 'string' ? endpoint.requestSchema : undefined,
-			responseSchema: typeof endpoint.responseSchema === 'string' ? endpoint.responseSchema : undefined
+			responseSchema: typeof endpoint.responseSchema === 'string' ? endpoint.responseSchema : undefined,
+			requestHeaders: Array.isArray(endpoint.requestHeaders)
+				? endpoint.requestHeaders.filter((header): header is string => typeof header === 'string')
+				: undefined
 		});
 	}
 

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { extractFrontendEndpointsFromCode } from '../../host/contracts/frontendApiExtractor';
 
-function stripLocation<T extends { sourceLine?: number; sourceColumn?: number }>(item: T): Omit<T, 'sourceLine' | 'sourceColumn'> {
-	const { sourceLine: _line, sourceColumn: _column, ...rest } = item;
+function stripLocation<T extends { sourceLine?: number; sourceColumn?: number; fieldLocations?: unknown }>(
+	item: T
+): Omit<T, 'sourceLine' | 'sourceColumn' | 'fieldLocations'> {
+	const { sourceLine: _line, sourceColumn: _column, fieldLocations: _fieldLocations, ...rest } = item;
 	return rest;
 }
 
@@ -270,10 +272,332 @@ test('extracts env-prefixed fetch URLs and strips query strings', () => {
 	endpoints.forEach(assertHasLocation);
 
 	assert.deepEqual(endpoints.map(stripLocation), [
-		{ method: 'GET', path: '/api/v1/auth/me', responseSchema: 'AuthUser | null' },
-		{ method: 'PUT', path: '/api/v1/users/me/username', responseSchema: '{ username: string }' },
-		{ method: 'POST', path: '/api/v1/auth/logout', responseSchema: undefined }
+		{ method: 'GET', path: '/api/v1/auth/me', responseSchema: '{"id":"string","email":"string"}', requestHeaders: ['Authorization'] },
+		{ method: 'PUT', path: '/api/v1/users/me/username', responseSchema: '{"username":"string"}', requestHeaders: ['Authorization'] },
+		{ method: 'POST', path: '/api/v1/auth/logout', responseSchema: undefined, requestHeaders: ['Authorization'] }
 	]);
+	assert.deepEqual(endpoints.map((endpoint) => endpoint.requestHeaders), [
+		['Authorization'],
+		['Authorization'],
+		['Authorization']
+	]);
+});
+
+test('discovers request headers from fetch and axios config', () => {
+	const source = `
+		const authHeaders = {
+			Authorization: \`Bearer \${token}\`,
+			'X-API-Key': apiKey
+		};
+
+		async function run(): Promise<void> {
+			await fetch('/api/private', { headers: authHeaders });
+			await axios.post('/api/items', { name: 'item' }, { headers: { Authorization: token } });
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/private', responseSchema: undefined, requestHeaders: ['Authorization', 'X-API-Key'] },
+		{ method: 'POST', path: '/api/items', requestSchema: '{"name":"string"}', responseSchema: undefined, requestHeaders: ['Authorization'] }
+	]);
+});
+
+test('discovers authorization handled by shared frontend clients', () => {
+	const source = `
+		const api = axios.create({ baseURL: '/api', withCredentials: true });
+		api.interceptors.request.use((config) => {
+			config.headers.Authorization = \`Bearer \${token}\`;
+			return config;
+		});
+
+		async function run(): Promise<void> {
+			await api.get('/api/me');
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'GET', path: '/api/me', responseSchema: undefined, requestHeaders: ['Authorization'] }
+	]);
+});
+
+test('resolves TypeScript type declarations and inline request bodies to field schemas', () => {
+	const source = `
+		type CreateUserRequest = {
+			email: string;
+			username?: string;
+			age: number;
+		};
+
+		interface UserResponse {
+			id: string;
+			email: string;
+			active: boolean;
+			roles: string[];
+		}
+
+		async function createUser(payload: CreateUserRequest): Promise<UserResponse> {
+			await fetch('/api/users', {
+				method: 'POST',
+				body: JSON.stringify(payload)
+			});
+			await fetch('/api/users/preview', {
+				method: 'POST',
+				body: JSON.stringify({ email: payload.email, active: true, attempts: 1 })
+			});
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'POST',
+			path: '/api/users',
+			requestSchema: '{"email":"string","username":"string","age":"number"}',
+			responseSchema: '{"id":"string","email":"string","active":"boolean","roles":"string[]"}'
+		},
+		{
+			method: 'POST',
+			path: '/api/users/preview',
+			requestSchema: '{"email":"unknown","active":"boolean","attempts":"number"}',
+			responseSchema: '{"id":"string","email":"string","active":"boolean","roles":"string[]"}'
+		}
+	]);
+	assert.deepEqual(
+		endpoints[0].fieldLocations?.filter(({ scope }) => scope === 'response').map(({ scope, field, line, highlightText }) => ({ scope, field, line, highlightText })),
+		[
+			{ scope: 'response', field: 'id', line: 9, highlightText: 'id' },
+			{ scope: 'response', field: 'email', line: 10, highlightText: 'email' },
+			{ scope: 'response', field: 'active', line: 11, highlightText: 'active' },
+			{ scope: 'response', field: 'roles', line: 12, highlightText: 'roles' }
+		]
+	);
+});
+
+test('infers schemas from unannotated object payload variables and inline response types', () => {
+	const source = `
+		async function createGroup(participantIds: string[], groupName: string): Promise<{ id: string; members: string[] }> {
+			const payload = {
+				participantIds,
+				groupName,
+				created: new Date().toISOString(),
+				private: false
+			};
+
+			await fetch('/api/v1/conversations/group', {
+				method: 'POST',
+				body: JSON.stringify(payload)
+			});
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'POST',
+			path: '/api/v1/conversations/group',
+			requestSchema: '{"participantIds":"string[]","groupName":"string","created":"string","private":"boolean"}',
+			responseSchema: '{"id":"string","members":"string[]"}'
+		}
+	]);
+});
+
+test('infers inline JSON body fields from useCallback handlers', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_URL;
+		const handleCreateGroup = useCallback(
+			async (groupName: string, memberIds: string[]) => {
+				const res = await fetch(\`\${API_BASE}/api/v1/conversations/group\`, {
+					method: 'POST',
+					credentials: 'include',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						groupName,
+						participantIds: memberIds,
+					}),
+				});
+				const data = await res.json();
+				return data;
+			},
+			[]
+		);
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'POST',
+			path: '/api/v1/conversations/group',
+			requestSchema: '{"groupName":"string","participantIds":"string[]"}',
+			responseSchema: undefined,
+			requestHeaders: ['Authorization', 'Content-Type']
+		}
+	]);
+});
+
+test('infers response fields from json unpacking after the fetch call', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_URL;
+		const handleCreateGroup = useCallback(
+			async (groupName: string, memberIds: string[]) => {
+				const res = await fetch(\`\${API_BASE}/api/v1/conversations/group\`, {
+					method: 'POST',
+					body: JSON.stringify({
+						groupName,
+						participantIds: memberIds,
+					}),
+				});
+				const data = await res.json();
+				const convId = String(data.id);
+				const createdAt = data.created_at ? new Date(data.created_at) : new Date();
+				setFriendsList((prev) => [
+					{
+						id: convId,
+						name: data.name || groupName,
+						isGroup: Boolean(data.is_group),
+					},
+					...prev,
+				]);
+				return createdAt;
+			},
+			[]
+		);
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'POST',
+			path: '/api/v1/conversations/group',
+			requestSchema: '{"groupName":"string","participantIds":"string[]"}',
+			responseSchema: '{"id":"string","created_at":"datetime","name":"string","is_group":"boolean"}'
+		}
+	]);
+});
+
+test('infers response fields from json array map item unpacking', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_URL;
+		const refreshFriendRequests = useCallback(async () => {
+			const [incomingRes, outgoingRes] = await Promise.all([
+				fetch(\`\${API_BASE}/api/v1/friend-requests/incoming\`, { method: 'GET', credentials: 'include' }),
+				fetch(\`\${API_BASE}/api/v1/friend-requests/outgoing\`, { method: 'GET', credentials: 'include' }),
+			]);
+
+			if (incomingRes.ok) {
+				const incoming = await incomingRes.json();
+				setIncomingRequests(
+					incoming.map((fr: any) => {
+						const user = fr.fromUser || {};
+						return {
+							requestId: fr.id,
+							fromUserId: user.id ? String(user.id) : undefined,
+							fromName: user.username || user.email || 'User',
+							timestamp: formatTimeLabel(fr.createdAt),
+							status: 'pending',
+						};
+					})
+				);
+			}
+
+			if (outgoingRes.ok) {
+				const outgoing = await outgoingRes.json();
+				setSentRequests(
+					outgoing.map((fr: any) => {
+						const user = fr.toUser || {};
+						return {
+							requestId: fr.id,
+							toUserId: user.id ? String(user.id) : undefined,
+							toName: user.username || user.email || 'User',
+							timestamp: formatTimeLabel(fr.createdAt),
+							status: 'pending',
+						};
+					})
+				);
+			}
+		}, []);
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'GET',
+			path: '/api/v1/friend-requests/incoming',
+			responseSchema: '{"fromUser":"unknown","id":"unknown","fromUser.id":"string","fromUser.username":"string","fromUser.email":"string","createdAt":"unknown"}',
+			requestHeaders: ['Authorization']
+		},
+		{
+			method: 'GET',
+			path: '/api/v1/friend-requests/outgoing',
+			responseSchema: '{"toUser":"unknown","id":"unknown","toUser.id":"string","toUser.username":"string","toUser.email":"string","createdAt":"unknown"}',
+			requestHeaders: ['Authorization']
+		}
+	]);
+});
+
+test('infers search response aliases from mapped json results', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_URL;
+		const handleSearchUsers = useCallback(
+			async (query: string): Promise<UserSearchResult[]> => {
+				const res = await fetch(\`\${API_BASE}/api/v1/users/search?query=\${encodeURIComponent(query)}\`, {
+					method: 'GET',
+					credentials: 'include',
+				});
+				const data = await res.json();
+				return data.map((u: any) => {
+					const avatarUrl = u.avatarUrl || u.avatar_url || null;
+					return {
+						id: String(u.id),
+						name: u.username || u.email,
+						username: u.username || '',
+						email: u.email || '',
+						avatarUrl,
+					};
+				});
+			},
+			[]
+		);
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'GET',
+			path: '/api/v1/users/search',
+			responseSchema: '{"avatarUrl":"unknown | null","avatar_url":"unknown | null","id":"string","username":"string","email":"string"}',
+			requestHeaders: ['Authorization']
+		}
+	]);
+	assert.deepEqual(
+		endpoints[0].fieldLocations?.map(({ scope, field, line }) => ({ scope, field, line })),
+		[
+			{ scope: 'response', field: 'avatarUrl', line: 11 },
+			{ scope: 'response', field: 'avatar_url', line: 11 },
+			{ scope: 'response', field: 'id', line: 13 },
+			{ scope: 'response', field: 'username', line: 14 },
+			{ scope: 'response', field: 'email', line: 14 }
+		]
+	);
 });
 
 test('keeps unresolved template path segments as route parameters', () => {
@@ -331,6 +655,6 @@ test('extracts websocket endpoints from class URL wrappers', () => {
 	endpoints.forEach(assertHasLocation);
 
 	assert.deepEqual(endpoints.map(stripLocation), [
-		{ method: 'WS', path: '/ws', responseSchema: undefined }
+		{ method: 'WS', path: '/ws', responseSchema: undefined, requestHeaders: ['Authorization'] }
 	]);
 });

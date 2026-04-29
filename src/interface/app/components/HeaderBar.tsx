@@ -18,6 +18,7 @@ type HeaderBarProps = {
 	mode: AppMode;
 	onModeChange: (mode: AppMode) => void;
 	isScanning: boolean;
+	statusDetail?: string;
 };
 
 export function formatRelativeTime(date: Date): string {
@@ -64,10 +65,11 @@ export function resolveHeaderStatus(status: HeaderStatus, isScanning: boolean): 
 	return isScanning ? 'scanning' : status;
 }
 
-export function HeaderBar({ metrics, mode, onModeChange, isScanning }: HeaderBarProps) {
+export function HeaderBar({ metrics, mode, onModeChange, isScanning, statusDetail }: HeaderBarProps) {
 	const status = resolveHeaderStatus(metrics.status, isScanning);
 	const cfg = statusConfig[status];
 	const StatusIcon = cfg.Icon;
+	const statusTitle = status === 'error' ? statusDetail : undefined;
 
 	return (
 		<header className="sv-header">
@@ -82,7 +84,7 @@ export function HeaderBar({ metrics, mode, onModeChange, isScanning }: HeaderBar
 				</div>
 
 				<div className="sv-header-status-wrap">
-					<span className={`sv-header-status ${cfg.bg} ${cfg.color}`}>
+					<span className={`sv-header-status ${cfg.bg} ${cfg.color}`} title={statusTitle}>
 						<StatusIcon size={12} className={status === 'scanning' ? 'sv-spin' : undefined} />
 						<span className={`sv-header-status-dot ${cfg.dot}`} />
 						{cfg.label}

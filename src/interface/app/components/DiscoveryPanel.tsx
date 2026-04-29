@@ -15,7 +15,9 @@ import {
 	Search
 } from 'lucide-react';
 import { Button, Input } from './ui';
-import type { VerificationIssue } from '../../../shared/messages';
+import { SchemaDiffView } from './SchemaDiffView';
+import { describeSchemaStrings } from '../../../host/verification/schemaCompare';
+import type { SchemaDiff, SchemaFieldSourceLocation, SourceRevealTarget, VerificationIssue } from '../../../shared/messages';
 
 type DiscoveredApi = {
 	uri: string;
@@ -23,10 +25,14 @@ type DiscoveredApi = {
 	path: string;
 	requestSchema?: string;
 	responseSchema?: string;
+	requestHeaders?: string[];
+	fieldLocations?: SchemaFieldSourceLocation[];
 	side: 'frontend' | 'backend';
 	source: string;
 	line: number;
 	column: number;
+	highlightText?: string;
+	skipCounterpartReveal?: boolean;
 };
 
 type DiscoveryPanelProps = {
@@ -51,13 +57,13 @@ type MethodStyle = {
 
 type SchemaShape = Record<string, string>;
 type SchemaView = 'fields' | 'ts' | 'json';
-type SchemaTab = 'request' | 'response';
 type DiscoverySummary = {
 	totalEndpoints: number;
 	totalFiles: number;
 	mismatchEndpoints: number;
 };
 type MismatchLookup = Map<string, VerificationIssue[]>;
+type EndpointLookup = Map<string, DiscoveredApi[]>;
 type IssueBadge = {
 	label: string;
 	className: string;
@@ -155,6 +161,45 @@ function endpointIssueKey(side: 'frontend' | 'backend', method?: string, path?: 
 	return `${side}:${method.toUpperCase()} ${path}`;
 }
 
+function endpointMatchKey(method?: string, path?: string): string | undefined {
+	if (!method || !path) {
+		return undefined;
+	}
+	return `${method.toUpperCase()} ${normalizeEndpointPathForMatch(path)}`;
+}
+
+function normalizeEndpointPathForMatch(path: string): string {
+	const normalizedParams = path
+		.trim()
+		.split(/[?#]/)[0]
+		.replace(/\/\{[^/}]+\}/g, '/{param}')
+		.replace(/\/:[^/]+/g, '/{param}')
+		.replace(/\/+/g, '/');
+	return normalizedParams.length > 1 && normalizedParams.endsWith('/') ? normalizedParams.slice(0, -1) : normalizedParams;
+}
+
+function buildEndpointLookup(items: DiscoveredApi[]): EndpointLookup {
+	const lookup: EndpointLookup = new Map();
+	for (const item of items) {
+		const key = endpointMatchKey(item.method, item.path);
+		if (!key) {
+			continue;
+		}
+		const existing = lookup.get(key);
+		if (existing) {
+			existing.push(item);
+		} else {
+			lookup.set(key, [item]);
+		}
+	}
+	return lookup;
+}
+
+function getCounterpartEndpoint(item: DiscoveredApi, lookup: EndpointLookup): DiscoveredApi | undefined {
+	const key = endpointMatchKey(item.method, item.path);
+	return key ? lookup.get(key)?.find((candidate) => candidate.side !== item.side) : undefined;
+}
+
 function getEndpointIssues(item: DiscoveredApi, lookup: MismatchLookup): VerificationIssue[] {
 	return lookup.get(endpointIssueKey(item.side, item.method, item.path) ?? '') ?? [];
 }
@@ -216,6 +261,14 @@ function issueBadgeFor(issue: VerificationIssue): IssueBadge {
 			searchText: 'response schema mismatch res schema'
 		};
 	}
+	if (issue.kind === 'header-mismatch') {
+		return {
+			label: 'Headers',
+			className: 'discovery-issue-invalid',
+			title: 'Frontend request headers do not satisfy backend requirements.',
+			searchText: 'header headers authorization token api key missing'
+		};
+	}
 	if (issue.kind === 'duplicate-endpoint') {
 		return {
 			label: 'Duplicate',
@@ -236,15 +289,83 @@ function uniqueIssueBadges(issues: VerificationIssue[]): IssueBadge[] {
 	const byLabel = new Map<string, IssueBadge>();
 	for (const issue of issues) {
 		const badge = issueBadgeFor(issue);
-		byLabel.set(badge.label, badge);
+		const existing = byLabel.get(badge.label);
+		if (existing) {
+			if (!existing.title.includes(issue.message)) {
+				existing.title = `${existing.title}\n\n${issue.message}`;
+			}
+			continue;
+		}
+		byLabel.set(badge.label, {
+			...badge,
+			title: `${badge.title}\n\n${issue.message}`
+		});
 	}
 	return Array.from(byLabel.values());
+}
+
+function collectSchemaDiffs(issues: VerificationIssue[]): SchemaDiff[] {
+	const byKey = new Map<string, SchemaDiff>();
+	for (const issue of issues) {
+		for (const diff of issue.schemaDiffs ?? []) {
+			byKey.set(`${diff.scope}:${JSON.stringify(diff.fields)}`, diff);
+		}
+	}
+	return Array.from(byKey.values());
+}
+
+function collectComparableSchemaDiffs(endpoint: DiscoveredApi, counterpart: DiscoveredApi | undefined): SchemaDiff[] {
+	if (!counterpart) {
+		return [];
+	}
+	const frontend = endpoint.side === 'frontend' ? endpoint : counterpart;
+	const backend = endpoint.side === 'backend' ? endpoint : counterpart;
+	return [
+		describeSchemaStrings(frontend.requestSchema, backend.requestSchema, 'request'),
+		describeSchemaStrings(frontend.responseSchema, backend.responseSchema, 'response')
+	].filter((diff): diff is SchemaDiff => Boolean(diff)).map((diff) => attachFieldLocations(diff, frontend, backend));
+}
+
+function attachFieldLocations(diff: SchemaDiff, frontend: DiscoveredApi, backend: DiscoveredApi): SchemaDiff {
+	return {
+		...diff,
+		fields: diff.fields.map((field) => ({
+			...field,
+			fe: field.fe ? { ...field.fe, location: resolveFieldLocation(frontend, diff.scope, field.fe.key) } : undefined,
+			be: field.be ? { ...field.be, location: resolveFieldLocation(backend, diff.scope, field.be.key) } : undefined
+		}))
+	};
+}
+
+export function resolveFieldLocation(endpoint: DiscoveredApi, scope: SchemaDiff['scope'], key: string): SourceRevealTarget {
+	const exact = endpoint.fieldLocations?.find((location) => location.scope === scope && location.field === key);
+	if (exact) {
+		return exact;
+	}
+	const normalizedKey = normalizeFieldKey(key);
+	const normalized = endpoint.fieldLocations?.find((location) => location.scope === scope && normalizeFieldKey(location.field) === normalizedKey);
+	if (normalized) {
+		return normalized;
+	}
+	return {
+		uri: endpoint.uri,
+		line: endpoint.line,
+		column: endpoint.column,
+		method: endpoint.method,
+		path: endpoint.path,
+		side: endpoint.side,
+		highlightText: key.split('.').pop()?.replace(/\[]$/, '') ?? key
+	};
+}
+
+function normalizeFieldKey(key: string): string {
+	return key.replace(/[_\-\s]/g, '').toLowerCase();
 }
 
 function itemIssuesSearchText(item: DiscoveredApi, mismatchLookup?: MismatchLookup): string {
 	const issues = mismatchLookup ? getEndpointIssues(item, mismatchLookup) : [];
 	const issueText = uniqueIssueBadges(issues).map((badge) => `${badge.label} ${badge.searchText}`).join(' ');
-	const schema = `${item.requestSchema ?? ''} ${item.responseSchema ?? ''}`.toLowerCase();
+	const schema = `${item.requestSchema ?? ''} ${item.responseSchema ?? ''} ${(item.requestHeaders ?? []).join(' ')}`.toLowerCase();
 	return `${schema} ${issueText}`.toLowerCase();
 }
 
@@ -366,13 +487,19 @@ function SchemaPanel({
 	label,
 	icon,
 	kind,
-	interfaceName
+	interfaceName,
+	fieldLocations,
+	fallbackEndpoint,
+	onRevealField
 }: {
 	schema: SchemaShape;
 	label: string;
 	icon: ReactNode;
-	kind: SchemaTab;
+	kind: 'request' | 'response';
 	interfaceName: string;
+	fieldLocations?: SchemaFieldSourceLocation[];
+	fallbackEndpoint?: DiscoveredApi;
+	onRevealField?: (location: SourceRevealTarget) => void;
 }) {
 	const [view, setView] = useState<SchemaView>('fields');
 	const entries = Object.entries(schema);
@@ -410,15 +537,35 @@ function SchemaPanel({
 			</div>
 			{view === 'fields' ? (
 				<div className="discovery-schema-fields">
-					{entries.map(([key, type]) => (
-						<div key={key} className="discovery-schema-field-row">
-							<code className="discovery-schema-key">{key}</code>
-							<span className="discovery-schema-optional" title="Optional">?</span>
-							<span className={`discovery-schema-type-chip ${typeClass(type)}`}>
-								{type}
-							</span>
-						</div>
-					))}
+					{entries.map(([key, type]) => {
+						const location = fieldLocations?.find((item) => item.scope === kind && item.field === key)
+							?? fieldLocations?.find((item) => item.scope === kind && normalizeFieldKey(item.field) === normalizeFieldKey(key))
+							?? (fallbackEndpoint ? resolveFieldLocation(fallbackEndpoint, kind, key) : undefined);
+						const content = (
+							<>
+								<code className="discovery-schema-key">{key}</code>
+								<span className="discovery-schema-optional" title="Optional">?</span>
+								<span className={`discovery-schema-type-chip ${typeClass(type)}`}>
+									{type}
+								</span>
+							</>
+						);
+						return location && onRevealField ? (
+							<button
+								key={key}
+								type="button"
+								className="discovery-schema-field-row discovery-schema-field-button"
+								title={`Open ${key} usage at line ${location.line}`}
+								onClick={() => onRevealField(location)}
+							>
+								{content}
+							</button>
+						) : (
+							<div key={key} className="discovery-schema-field-row">
+								{content}
+							</div>
+						);
+					})}
 				</div>
 			) : (
 				<pre className="discovery-schema-code">
@@ -432,30 +579,60 @@ function SchemaPanel({
 function EndpointRow({
 	endpoint,
 	mismatchLookup,
+	endpointLookup,
 	onReveal
 }: {
 	endpoint: DiscoveredApi;
 	mismatchLookup: MismatchLookup;
+	endpointLookup: EndpointLookup;
 	onReveal: (item: DiscoveredApi) => void;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const [activeTab, setActiveTab] = useState<SchemaTab>(endpoint.requestSchema ? 'request' : 'response');
 	const method = normalizeMethod(endpoint.method);
 	const mc = METHOD_STYLES[method];
 	const issues = getEndpointIssues(endpoint, mismatchLookup);
 	const mismatch = issues.length > 0;
 	const issueBadges = uniqueIssueBadges(issues);
+	const counterpart = getCounterpartEndpoint(endpoint, endpointLookup);
+	const frontendEndpoint = counterpart ? (endpoint.side === 'frontend' ? endpoint : counterpart) : undefined;
+	const backendEndpoint = counterpart ? (endpoint.side === 'backend' ? endpoint : counterpart) : undefined;
+	const issueSchemaDiffs = collectSchemaDiffs(issues).map((diff) =>
+		frontendEndpoint && backendEndpoint ? attachFieldLocations(diff, frontendEndpoint, backendEndpoint) : diff
+	);
+	const comparableSchemaDiffs = collectComparableSchemaDiffs(endpoint, counterpart)
+		.filter((diff) => !issueSchemaDiffs.some((issueDiff) => issueDiff.scope === diff.scope));
+	const schemaDiffs = [...issueSchemaDiffs, ...comparableSchemaDiffs];
 	const requestSchema = parseSchema(endpoint.requestSchema);
 	const responseSchema = parseSchema(endpoint.responseSchema);
-	const hasSchema = Boolean(requestSchema || responseSchema);
-	const selectedTab = requestSchema && responseSchema ? activeTab : requestSchema ? 'request' : 'response';
+	const hasSchema = Boolean(requestSchema || responseSchema || schemaDiffs.length > 0);
+	const mappedScopes = new Set(schemaDiffs.map((diff) => diff.scope));
+	const hasUnmappedRequestSchema = Boolean(requestSchema && !mappedScopes.has('request'));
+	const hasUnmappedResponseSchema = Boolean(responseSchema && !mappedScopes.has('response'));
+	const hasUnmappedSchema = hasUnmappedRequestSchema || hasUnmappedResponseSchema;
 	const methodOutlineClass = `discovery-item-method-${method.toLowerCase()}`;
+	const stateClass = `${mismatch ? 'is-mismatch' : ''} ${expanded ? 'is-expanded' : ''}`;
+	const revealField = (location: SourceRevealTarget) => {
+		const candidates = counterpart ? [endpoint, counterpart] : [endpoint];
+		const sourceEndpoint = candidates.find((item) => item.uri === location.uri) ?? endpoint;
+		const fieldSourceIsDifferentFile = Boolean(location.uri && location.uri !== endpoint.uri && location.uri !== counterpart?.uri);
+		onReveal({
+			...sourceEndpoint,
+			uri: location.uri || sourceEndpoint.uri,
+			line: location.line,
+			column: location.column,
+			method: location.method ?? sourceEndpoint.method,
+			path: location.path ?? sourceEndpoint.path,
+			side: (location.side ?? sourceEndpoint.side) as DiscoveredApi['side'],
+			highlightText: location.highlightText ?? ('field' in location && typeof location.field === 'string' ? location.field : undefined),
+			skipCounterpartReveal: fieldSourceIsDifferentFile
+		});
+	};
 
 	return (
 		<>
-			<div className={`discovery-item ${methodOutlineClass} ${mismatch ? 'is-mismatch' : ''} ${expanded ? 'is-expanded' : ''}`}>
+			<div className="discovery-item">
 				<div
-					className={`discovery-item-row ${hasSchema ? 'has-schema' : ''}`}
+					className={`discovery-item-row ${methodOutlineClass} ${stateClass} ${hasSchema ? 'has-schema' : ''}`}
 					onClick={() => {
 						if (hasSchema) {
 							setExpanded((value) => !value);
@@ -485,10 +662,15 @@ function EndpointRow({
 								req &middot; {Object.keys(requestSchema).length}
 							</span>
 						) : null}
-						{responseSchema ? (
+		{responseSchema ? (
 							<span className="discovery-schema-pill discovery-schema-pill-response">
 								<ArrowDownToLine size={9} />
 								res &middot; {Object.keys(responseSchema).length}
+							</span>
+						) : null}
+						{endpoint.requestHeaders && endpoint.requestHeaders.length > 0 ? (
+							<span className="discovery-schema-pill discovery-schema-pill-headers" title={endpoint.requestHeaders.join(', ')}>
+								headers &middot; {endpoint.requestHeaders.length}
 							</span>
 						) : null}
 						<span className="discovery-location">
@@ -511,46 +693,68 @@ function EndpointRow({
 			</div>
 			{expanded && hasSchema ? (
 				<div className="discovery-schema-under">
-					{requestSchema && responseSchema ? (
-						<div className="discovery-schema-tabs">
-							{(['request', 'response'] as SchemaTab[]).map((tab) => {
-								const count = tab === 'request' ? Object.keys(requestSchema).length : Object.keys(responseSchema).length;
-								return (
-									<button
-										key={tab}
-										type="button"
-										className={`discovery-schema-tab discovery-schema-tab-${tab} ${selectedTab === tab ? 'is-active' : ''}`}
-										onClick={(event) => {
-											event.stopPropagation();
-											setActiveTab(tab);
-										}}
-									>
-										{tab === 'request' ? <ArrowUpFromLine size={10} /> : <ArrowDownToLine size={10} />}
-										{tab === 'request' ? 'Request Body' : 'Response Body'}
-										<span>{count}</span>
-									</button>
-								);
-							})}
+					{schemaDiffs.length > 0 ? (
+						<>
+							<div className="discovery-schema-mapping">
+								<SchemaDiffView diffs={schemaDiffs} onRevealField={revealField} />
+							</div>
+							{hasUnmappedSchema ? (
+								<div className={hasUnmappedRequestSchema && hasUnmappedResponseSchema ? 'discovery-schema-compare' : 'discovery-schema-single'}>
+									{hasUnmappedRequestSchema && requestSchema ? (
+										<SchemaPanel
+											schema={requestSchema}
+											label="Request Body"
+											icon={<ArrowUpFromLine size={11} />}
+											kind="request"
+											interfaceName={buildInterfaceName(endpoint, 'Request')}
+											fieldLocations={endpoint.fieldLocations}
+											fallbackEndpoint={endpoint}
+											onRevealField={revealField}
+										/>
+									) : null}
+									{hasUnmappedResponseSchema && responseSchema ? (
+										<SchemaPanel
+											schema={responseSchema}
+											label="Response Body"
+											icon={<ArrowDownToLine size={11} />}
+											kind="response"
+											interfaceName={buildInterfaceName(endpoint, 'Response')}
+											fieldLocations={endpoint.fieldLocations}
+											fallbackEndpoint={endpoint}
+											onRevealField={revealField}
+										/>
+									) : null}
+								</div>
+							) : null}
+						</>
+					) : (
+						<div className={requestSchema && responseSchema ? 'discovery-schema-compare' : 'discovery-schema-single'}>
+							{requestSchema ? (
+								<SchemaPanel
+									schema={requestSchema}
+									label="Request Body"
+									icon={<ArrowUpFromLine size={11} />}
+									kind="request"
+									interfaceName={buildInterfaceName(endpoint, 'Request')}
+									fieldLocations={endpoint.fieldLocations}
+									fallbackEndpoint={endpoint}
+									onRevealField={revealField}
+								/>
+							) : null}
+							{responseSchema ? (
+								<SchemaPanel
+									schema={responseSchema}
+									label="Response Body"
+									icon={<ArrowDownToLine size={11} />}
+									kind="response"
+									interfaceName={buildInterfaceName(endpoint, 'Response')}
+									fieldLocations={endpoint.fieldLocations}
+									fallbackEndpoint={endpoint}
+									onRevealField={revealField}
+								/>
+							) : null}
 						</div>
-					) : null}
-					{selectedTab === 'request' && requestSchema ? (
-						<SchemaPanel
-							schema={requestSchema}
-							label="Request Body"
-							icon={<ArrowUpFromLine size={11} />}
-							kind="request"
-							interfaceName={buildInterfaceName(endpoint, 'Request')}
-						/>
-					) : null}
-					{selectedTab === 'response' && responseSchema ? (
-						<SchemaPanel
-							schema={responseSchema}
-							label="Response Body"
-							icon={<ArrowDownToLine size={11} />}
-							kind="response"
-							interfaceName={buildInterfaceName(endpoint, 'Response')}
-						/>
-					) : null}
+					)}
 				</div>
 			) : null}
 		</>
@@ -560,10 +764,12 @@ function EndpointRow({
 function SourceGroupCard({
 	group,
 	mismatchLookup,
+	endpointLookup,
 	onReveal
 }: {
 	group: GroupedSource;
 	mismatchLookup: MismatchLookup;
+	endpointLookup: EndpointLookup;
 	onReveal: (item: DiscoveredApi) => void;
 }) {
 	const [collapsed, setCollapsed] = useState(false);
@@ -621,6 +827,7 @@ function SourceGroupCard({
 							key={`${endpoint.uri}-${endpoint.method}-${endpoint.path}-${index}`}
 							endpoint={endpoint}
 							mismatchLookup={mismatchLookup}
+							endpointLookup={endpointLookup}
 							onReveal={onReveal}
 						/>
 					))}
@@ -634,6 +841,7 @@ export function DiscoveryPanel({ items, mismatches, isLoading, onRefresh, onReve
 	const [search, setSearch] = useState('');
 	const groups = useMemo(() => groupBySource(items), [items]);
 	const mismatchLookup = useMemo(() => buildMismatchLookup(mismatches), [mismatches]);
+	const endpointLookup = useMemo(() => buildEndpointLookup(items), [items]);
 	const filteredGroups = useMemo(() => filterGroups(groups, search, mismatchLookup), [groups, search, mismatchLookup]);
 	const summary = useMemo(() => summarizeDiscovery(groups, mismatchLookup), [groups, mismatchLookup]);
 
@@ -680,7 +888,7 @@ export function DiscoveryPanel({ items, mismatches, isLoading, onRefresh, onReve
 					</div>
 				) : (
 					filteredGroups.map((group) => (
-						<SourceGroupCard key={group.source} group={group} mismatchLookup={mismatchLookup} onReveal={onReveal} />
+						<SourceGroupCard key={group.source} group={group} mismatchLookup={mismatchLookup} endpointLookup={endpointLookup} onReveal={onReveal} />
 					))
 				)}
 			</div>

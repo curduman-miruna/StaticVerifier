@@ -11,6 +11,7 @@ export type VerificationIssueKind =
 	| 'backend-only'
 	| 'request-schema-mismatch'
 	| 'response-schema-mismatch'
+	| 'header-mismatch'
 	| 'invalid-endpoint'
 	| 'duplicate-endpoint';
 
@@ -27,6 +28,7 @@ export type SchemaField = {
 	type: string;
 	required: boolean;
 	description?: string;
+	location?: SourceRevealTarget;
 };
 
 export type SchemaFieldDiff = {
@@ -44,6 +46,7 @@ export type SchemaDiff = {
 };
 
 export type VerificationIssue = {
+	uri?: string;
 	file: string;
 	line: number;
 	column: number;
@@ -53,7 +56,23 @@ export type VerificationIssue = {
 	sourceSide: ContractSide;
 	method?: string;
 	path?: string;
+	headerDiffs?: string[];
 	schemaDiffs?: SchemaDiff[];
+};
+
+export type SourceRevealTarget = {
+	uri: string;
+	line: number;
+	column: number;
+	method?: string;
+	path?: string;
+	side?: ContractSide;
+	highlightText?: string;
+};
+
+export type SchemaFieldSourceLocation = SourceRevealTarget & {
+	scope: 'request' | 'response';
+	field: string;
 };
 
 export type HostMessage = {
@@ -71,6 +90,8 @@ export type HostMessage = {
 		path: string;
 		requestSchema?: string;
 		responseSchema?: string;
+		requestHeaders?: string[];
+		fieldLocations?: SchemaFieldSourceLocation[];
 		side: ContractSide;
 		source: string;
 		line: number;
@@ -90,6 +111,11 @@ export type HostMessage = {
 		value: string;
 		fileCount: number;
 	}>;
+} | {
+	type: 'aiExplanationResult';
+	requestId: string;
+	text?: string;
+	error?: string;
 };
 
 export type PopupMessage =
@@ -117,4 +143,25 @@ export type PopupMessage =
 		uri: string;
 		line: number;
 		column: number;
+		method?: string;
+		path?: string;
+		side?: ContractSide;
+		highlightText?: string;
+		skipCounterpartReveal?: boolean;
+		locations?: SourceRevealTarget[];
+	}
+	| {
+		type: 'revealVerificationIssue';
+		uri: string;
+		line: number;
+		column: number;
+		method?: string;
+		path?: string;
+		side?: ContractSide;
+		highlightText?: string;
+	}
+	| {
+		type: 'explainVerificationIssue';
+		requestId: string;
+		issue: VerificationIssue;
 	};

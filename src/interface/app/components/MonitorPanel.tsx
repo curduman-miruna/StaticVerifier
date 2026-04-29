@@ -5,6 +5,19 @@ import { DiscoveryPanel } from './DiscoveryPanel';
 import { VerificationView } from './VerificationView';
 import type { VerificationIssue } from '../../../shared/messages';
 
+type DiscoveredApi = {
+	uri: string;
+	method: string;
+	path: string;
+	requestSchema?: string;
+	responseSchema?: string;
+	requestHeaders?: string[];
+	side: 'frontend' | 'backend';
+	source: string;
+	line: number;
+	column: number;
+};
+
 type MonitorPanelProps = {
 	metrics: {
 		totalEndpoints: number;
@@ -13,24 +26,13 @@ type MonitorPanelProps = {
 		beIndexed: number;
 	};
 	mismatches: VerificationIssue[];
-	discoveredApis: Array<{
-		uri: string;
-		method: string;
-		path: string;
-		requestSchema?: string;
-		responseSchema?: string;
-		side: 'frontend' | 'backend';
-		source: string;
-		line: number;
-		column: number;
-	}>;
+	discoveredApis: DiscoveredApi[];
 	isDiscovering: boolean;
 	onRescan: () => Promise<void>;
-	onRevealDiscoveredApi: (item: {
-		uri: string;
-		line: number;
-		column: number;
-	}) => void;
+	onRevealIssue?: (issue: VerificationIssue) => void;
+	onExplainIssue?: (requestId: string, issue: VerificationIssue) => void;
+	aiExplanations?: Record<string, { status: 'loading' | 'done' | 'error'; text?: string; error?: string }>;
+	onRevealDiscoveredApi: (item: DiscoveredApi) => void;
 	onRefreshDiscovery: () => void;
 };
 
@@ -42,6 +44,9 @@ export function MonitorPanel({
 	discoveredApis,
 	isDiscovering,
 	onRescan,
+	onRevealIssue,
+	onExplainIssue,
+	aiExplanations,
 	onRevealDiscoveredApi,
 	onRefreshDiscovery
 }: MonitorPanelProps) {
@@ -110,9 +115,15 @@ export function MonitorPanel({
 			</div>
 
 			<div className="monitor-content">
-				{activeTab === 'verification' ? (
-					<VerificationView mismatches={mismatches} />
-				) : (
+				<div className={activeTab === 'verification' ? 'monitor-tab-panel is-active' : 'monitor-tab-panel'} hidden={activeTab !== 'verification'}>
+					<VerificationView
+						mismatches={mismatches}
+						onRevealIssue={onRevealIssue}
+						onExplainIssue={onExplainIssue}
+						aiExplanations={aiExplanations}
+					/>
+				</div>
+				<div className={activeTab === 'discovered' ? 'monitor-tab-panel is-active' : 'monitor-tab-panel'} hidden={activeTab !== 'discovered'}>
 					<DiscoveryPanel
 						items={discoveredApis}
 						mismatches={mismatches}
@@ -120,7 +131,7 @@ export function MonitorPanel({
 						onRefresh={onRefreshDiscovery}
 						onReveal={onRevealDiscoveredApi}
 					/>
-				)}
+				</div>
 			</div>
 		</section>
 	);
