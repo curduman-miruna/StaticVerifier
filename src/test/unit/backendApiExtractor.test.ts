@@ -124,7 +124,7 @@ class ConversationCreate(BaseModel):
     participant_ids: List[UUID]
     topic: Optional[str] = None
 `);
-fs.writeFileSync(path.join(schemaDir, 'conversation_read.py'), `
+	fs.writeFileSync(path.join(schemaDir, 'conversation_read.py'), `
 from pydantic import BaseModel
 from typing import List
 
