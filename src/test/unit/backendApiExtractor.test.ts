@@ -286,3 +286,24 @@ async def get_me(current_user=Depends(get_current_user)):
 		]
 	);
 });
+
+test('does not force Authorization header for websocket dependency-based auth', () => {
+	const source = `
+from fastapi import APIRouter, WebSocket, Depends
+
+router = APIRouter(prefix="/chat")
+
+async def get_current_user(websocket: WebSocket):
+    return None
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, current_user = Depends(get_current_user)):
+    return None
+`;
+
+	const endpoints = extractBackendEndpointsFromCode(source);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{ method: 'WS', path: '/chat/ws', responseSchema: undefined }
+	]);
+});

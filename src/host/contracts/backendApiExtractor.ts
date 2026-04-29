@@ -79,7 +79,7 @@ export function extractBackendEndpointsFromCode(text: string, sourcePath?: strin
 		if (fieldLocations.length > 0) {
 			endpoint.fieldLocations = fieldLocations;
 		}
-		const requestHeaders = inferRequiredHeaders(text, match.index);
+		const requestHeaders = inferRequiredHeaders(text, match.index, method);
 		if (requestHeaders.length > 0) {
 			endpoint.requestHeaders = requestHeaders;
 		}
@@ -332,10 +332,11 @@ function inferRequestSchemaType(text: string, routeIndex: number): string | unde
 	return undefined;
 }
 
-function inferRequiredHeaders(text: string, routeIndex: number): string[] {
+function inferRequiredHeaders(text: string, routeIndex: number, method?: string): string[] {
 	const hint = text.slice(routeIndex, Math.min(text.length, routeIndex + 1200));
 	const headers = new Set<string>();
 	const securityHeaders = collectFastApiSecurityHeaders(text);
+	const isWebSocketRoute = method?.toUpperCase() === 'WS';
 	const signatureMatch = hint.match(/async\s+def\s+\w+\s*\(([\s\S]*?)\)\s*(?:->|:)/)
 		?? hint.match(/def\s+\w+\s*\(([\s\S]*?)\)\s*(?:->|:)/);
 	if (signatureMatch) {
@@ -346,10 +347,10 @@ function inferRequiredHeaders(text: string, routeIndex: number): string[] {
 			}
 			const dependsName = parameter.match(/\bDepends\s*\(\s*([A-Za-z_]\w*)/)?.[1];
 			const securityHeader = dependsName ? securityHeaders.get(dependsName) : undefined;
-			if (securityHeader) {
+			if (securityHeader && (!isWebSocketRoute || securityHeader !== 'Authorization')) {
 				headers.add(securityHeader);
 			}
-			if (dependsName && /(?:current_user|auth|token|jwt|oauth|bearer)/i.test(dependsName)) {
+			if (!isWebSocketRoute && dependsName && /(?:current_user|auth|token|jwt|oauth|bearer)/i.test(dependsName)) {
 				headers.add('Authorization');
 			}
 		}
