@@ -14,7 +14,12 @@
     "onStartupFinished",
     "onCommand:staticverifier.openInterface",
     "onCommand:staticverifier.verifyContracts",
-    "onCommand:staticverifier.configureVerificationMode"
+    "onCommand:staticverifier.configureVerificationMode",
+    "onCommand:staticverifier.findEndpointInOtherSource",
+    "onCommand:staticverifier.searchEndpoint",
+    "onCommand:staticverifier.loadDemoSources",
+    "onCommand:staticverifier.goToEndpointModelAt",
+    "onCommand:staticverifier.exportOpenApi"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -30,6 +35,162 @@
       {
         "command": "staticverifier.configureVerificationMode",
         "title": "StaticVerifier: Configure Verification Mode"
+      },
+      {
+        "command": "staticverifier.findEndpointInOtherSource",
+        "title": "StaticVerifier: Find Endpoint in Other Source"
+      },
+      {
+        "command": "staticverifier.searchEndpoint",
+        "title": "StaticVerifier: Search Endpoint"
+      },
+      {
+        "command": "staticverifier.loadDemoSources",
+        "title": "StaticVerifier: Load Demo Sources"
+      },
+      {
+        "command": "staticverifier.explainSelectedEndpoint",
+        "title": "StaticVerifier: Explain Selected Endpoint Issue"
+      },
+      {
+        "command": "staticverifier.showEndpointSchema",
+        "title": "StaticVerifier: Show Endpoint Schema"
+      },
+      {
+        "command": "staticverifier.goToFrontendRequestModel",
+        "title": "StaticVerifier: Go to FE Request Model"
+      },
+      {
+        "command": "staticverifier.goToFrontendResponseModel",
+        "title": "StaticVerifier: Go to FE Response Model"
+      },
+      {
+        "command": "staticverifier.goToBackendRequestModel",
+        "title": "StaticVerifier: Go to BE Request Model"
+      },
+      {
+        "command": "staticverifier.goToBackendResponseModel",
+        "title": "StaticVerifier: Go to BE Response Model"
+      },
+      {
+        "command": "staticverifier.goToEndpointModelAt",
+        "title": "StaticVerifier: Go to Endpoint Model"
+      },
+      {
+        "command": "staticverifier.exportOpenApi",
+        "title": "StaticVerifier: Export OpenAPI"
+      },
+      {
+        "command": "staticverifier.refreshEndpointTree",
+        "title": "StaticVerifier: Refresh Endpoint Tree"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "staticverifier.endpointMenu",
+          "when": "editorHasSelection",
+          "group": "navigation@80"
+        }
+      ],
+      "staticverifier.endpointMenu": [
+        {
+          "command": "staticverifier.findEndpointInOtherSource",
+          "when": "editorHasSelection",
+          "group": "navigation@10"
+        },
+        {
+          "command": "staticverifier.explainSelectedEndpoint",
+          "when": "editorHasSelection",
+          "group": "navigation@15"
+        },
+        {
+          "command": "staticverifier.showEndpointSchema",
+          "when": "editorHasSelection",
+          "group": "navigation@20"
+        },
+        {
+          "command": "staticverifier.goToFrontendRequestModel",
+          "when": "editorHasSelection",
+          "group": "frontend@10"
+        },
+        {
+          "command": "staticverifier.goToFrontendResponseModel",
+          "when": "editorHasSelection",
+          "group": "frontend@20"
+        },
+        {
+          "command": "staticverifier.goToBackendRequestModel",
+          "when": "editorHasSelection",
+          "group": "backend@10"
+        },
+        {
+          "command": "staticverifier.goToBackendResponseModel",
+          "when": "editorHasSelection",
+          "group": "backend@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "staticverifier.exportOpenApi"
+        },
+        {
+          "command": "staticverifier.searchEndpoint"
+        },
+        {
+          "command": "staticverifier.loadDemoSources"
+        },
+        {
+          "command": "staticverifier.showEndpointSchema",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.goToFrontendRequestModel",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.goToFrontendResponseModel",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.goToBackendRequestModel",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.goToBackendResponseModel",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.goToEndpointModelAt",
+          "when": "false"
+        },
+        {
+          "command": "staticverifier.refreshEndpointTree",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "staticverifier",
+          "title": "StaticVerifier",
+          "icon": "resources/staticverifier.svg"
+        }
+      ]
+    },
+    "views": {
+      "staticverifier": [
+        {
+          "id": "staticverifier.endpoints",
+          "name": "Endpoints"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "staticverifier.endpointMenu",
+        "label": "StaticVerifier"
       }
     ],
     "configuration": {
@@ -270,6 +431,83 @@
           "type": "string",
           "default": "llama-3.1-8b-instant",
           "description": "Groq model used for AI explanations in the verification monitor."
+        },
+        "staticverifier.issueSeverity.missingBackend": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Diagnostic severity for frontend endpoints that have no matching backend endpoint."
+        },
+        "staticverifier.issueSeverity.backendOnly": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "warning",
+          "description": "Diagnostic severity for backend endpoints that are not declared or discovered in frontend sources."
+        },
+        "staticverifier.issueSeverity.requestSchemaMismatch": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Diagnostic severity for request schema mismatches."
+        },
+        "staticverifier.issueSeverity.responseSchemaMismatch": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Diagnostic severity for response schema mismatches."
+        },
+        "staticverifier.issueSeverity.headerMismatch": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Diagnostic severity for missing required backend headers in frontend calls."
+        },
+        "staticverifier.issueSeverity.duplicateEndpoint": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "warning",
+          "description": "Diagnostic severity for duplicate endpoint declarations on the same side."
+        },
+        "staticverifier.issueSeverity.invalidEndpoint": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Diagnostic severity for invalid endpoint methods or paths."
         }
       }
     }

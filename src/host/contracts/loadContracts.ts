@@ -1,9 +1,9 @@
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { ContractSide } from '../../shared/contracts';
 import { getContractInputFromConfig, getEntryValues, getFrontendDiscoveryOptions } from '../config/contractsConfig';
 import { buildVirtualContractUri } from './buildVirtualContractUri';
 import { parseContractText } from './contractParser';
+import { shouldSkipDiscoveryPath } from './discoveryPathFilters';
 import type { FrontendDiscoveryOptions } from './frontendApiExtractor';
 import { isSupportedGitHubContractUrl, normalizeGitHubRawUrl } from './githubSource';
 import { findLocalMatches } from './localSource';
@@ -33,18 +33,6 @@ const BACKEND_DISCOVERY_ALLOWED_EXTENSIONS = new Set([
 	'.json'
 ]);
 const BACKEND_DISCOVERY_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.kt', '.cs', '.json'];
-
-const FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS = [
-	`${path.sep}node_modules${path.sep}`,
-	`${path.sep}dist${path.sep}`,
-	`${path.sep}build${path.sep}`,
-	`${path.sep}out${path.sep}`,
-	`${path.sep}coverage${path.sep}`,
-	`${path.sep}.next${path.sep}`,
-	`${path.sep}.nuxt${path.sep}`,
-	`${path.sep}.svelte-kit${path.sep}`
-];
-const BACKEND_DISCOVERY_EXCLUDED_SEGMENTS = FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS;
 
 export async function loadConfiguredContracts(
 	side: ContractSide,
@@ -185,21 +173,5 @@ function shouldSkipDiscoveryUri(side: ContractSide, uri: vscode.Uri): boolean {
 	if (uri.scheme !== 'file') {
 		return false;
 	}
-
-	const filePath = uri.fsPath;
-	const lowerPath = filePath.toLowerCase();
-	const excludedSegments = side === 'frontend' ? FRONTEND_DISCOVERY_EXCLUDED_SEGMENTS : BACKEND_DISCOVERY_EXCLUDED_SEGMENTS;
-	for (const segment of excludedSegments) {
-		if (lowerPath.includes(segment.toLowerCase())) {
-			return true;
-		}
-	}
-
-	if (lowerPath.endsWith('.d.ts') || lowerPath.endsWith('.map') || lowerPath.endsWith('.min.js')) {
-		return true;
-	}
-
-	const extension = path.extname(lowerPath);
-	const allowedExtensions = side === 'frontend' ? FRONTEND_DISCOVERY_ALLOWED_EXTENSIONS : BACKEND_DISCOVERY_ALLOWED_EXTENSIONS;
-	return !allowedExtensions.has(extension);
+	return shouldSkipDiscoveryPath(side, uri.fsPath);
 }

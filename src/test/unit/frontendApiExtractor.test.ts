@@ -245,7 +245,8 @@ test('extracts env-prefixed fetch URLs and strips query strings', () => {
 		}
 
 		export async function fetchCurrentUser(): Promise<AuthUser | null> {
-			const res = await fetch(\`\${API_URL}/api/v1/auth/me\`, {
+			const res = await fetch(\`\${API_URL}/
+				api/v1/auth/me\`, {
 				method: 'GET',
 				credentials: 'include'
 			});
@@ -272,14 +273,14 @@ test('extracts env-prefixed fetch URLs and strips query strings', () => {
 	endpoints.forEach(assertHasLocation);
 
 	assert.deepEqual(endpoints.map(stripLocation), [
-		{ method: 'GET', path: '/api/v1/auth/me', responseSchema: '{"id":"string","email":"string"}', requestHeaders: ['Authorization'] },
-		{ method: 'PUT', path: '/api/v1/users/me/username', responseSchema: '{"username":"string"}', requestHeaders: ['Authorization'] },
-		{ method: 'POST', path: '/api/v1/auth/logout', responseSchema: undefined, requestHeaders: ['Authorization'] }
+		{ method: 'GET', path: '/api/v1/auth/me', responseSchema: '{"id":"string","email":"string"}' },
+		{ method: 'PUT', path: '/api/v1/users/me/username', responseSchema: '{"username":"string"}' },
+		{ method: 'POST', path: '/api/v1/auth/logout', responseSchema: undefined }
 	]);
 	assert.deepEqual(endpoints.map((endpoint) => endpoint.requestHeaders), [
-		['Authorization'],
-		['Authorization'],
-		['Authorization']
+		undefined,
+		undefined,
+		undefined
 	]);
 });
 
@@ -443,7 +444,7 @@ test('infers inline JSON body fields from useCallback handlers', () => {
 			path: '/api/v1/conversations/group',
 			requestSchema: '{"groupName":"string","participantIds":"string[]"}',
 			responseSchema: undefined,
-			requestHeaders: ['Authorization', 'Content-Type']
+			requestHeaders: ['Content-Type']
 		}
 	]);
 });
@@ -540,14 +541,12 @@ test('infers response fields from json array map item unpacking', () => {
 		{
 			method: 'GET',
 			path: '/api/v1/friend-requests/incoming',
-			responseSchema: '{"fromUser":"unknown","id":"unknown","fromUser.id":"string","fromUser.username":"string","fromUser.email":"string","createdAt":"unknown"}',
-			requestHeaders: ['Authorization']
+			responseSchema: '{"fromUser":"unknown","id":"unknown","fromUser.id":"string","fromUser.username":"string","fromUser.email":"string","createdAt":"unknown"}'
 		},
 		{
 			method: 'GET',
 			path: '/api/v1/friend-requests/outgoing',
-			responseSchema: '{"toUser":"unknown","id":"unknown","toUser.id":"string","toUser.username":"string","toUser.email":"string","createdAt":"unknown"}',
-			requestHeaders: ['Authorization']
+			responseSchema: '{"toUser":"unknown","id":"unknown","toUser.id":"string","toUser.username":"string","toUser.email":"string","createdAt":"unknown"}'
 		}
 	]);
 });
@@ -584,8 +583,7 @@ test('infers search response aliases from mapped json results', () => {
 		{
 			method: 'GET',
 			path: '/api/v1/users/search',
-			responseSchema: '{"avatarUrl":"unknown | null","avatar_url":"unknown | null","id":"string","username":"string","email":"string"}',
-			requestHeaders: ['Authorization']
+			responseSchema: '{"avatarUrl":"unknown | null","avatar_url":"unknown | null","id":"string","username":"string","email":"string"}'
 		}
 	]);
 	assert.deepEqual(
@@ -619,6 +617,70 @@ test('keeps unresolved template path segments as route parameters', () => {
 	assert.deepEqual(endpoints.map(stripLocation), [
 		{ method: 'GET', path: '/api/v1/conversations/{conversationId}/messages', responseSchema: 'MessagePage' },
 		{ method: 'GET', path: '/api/v1/friends/{otherUserId}/conversation', responseSchema: 'Conversation' }
+	]);
+});
+
+test('extracts fetch endpoints from local url variables with template route params', () => {
+	const source = `
+		const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || "";
+
+		export async function fetchReactionUsers(
+			messageId: string,
+			emoji: string,
+			opts?: { signal?: AbortSignal }
+		) {
+			const encEmoji = encodeURIComponent(emoji);
+			const url = \`\${API_BASE}/api/v1/messages/\${messageId}/reactions/\${encEmoji}/users\`;
+			const headers: Record<string, string> = { Accept: "application/json" };
+			const token = localStorage.getItem("token") || localStorage.getItem("access_token");
+			const res = await fetch(url, {
+				credentials: "include",
+				headers: token ? { ...headers, Authorization: \`Bearer \${token}\` } : headers,
+				signal: opts?.signal,
+			});
+			const data = await res.json();
+			return data as string[];
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'GET',
+			path: '/api/v1/messages/{messageId}/reactions/{encEmoji}/users',
+			responseSchema: undefined,
+			requestHeaders: ['Accept', 'Authorization']
+		}
+	]);
+});
+
+test('maps websocket message_reaction events to reaction REST counterparts', () => {
+	const source = `
+		function handleReact(messageId: string, emoji: string, ws: { send: (value: unknown) => void }) {
+			const action = Math.random() > 0.5 ? 'add' : 'remove';
+			ws.send({ type: 'message_reaction', data: { messageId, emoji, action } });
+		}
+	`;
+
+	const endpoints = extractFrontendEndpointsFromCode(source);
+	endpoints.forEach(assertHasLocation);
+
+	assert.deepEqual(endpoints.map(stripLocation), [
+		{
+			method: 'POST',
+			path: '/api/v1/messages/{messageId}/reactions',
+			requestSchema: '{"emoji":"string"}',
+			responseSchema: undefined,
+			requestHeaders: ['Authorization']
+		},
+		{
+			method: 'DELETE',
+			path: '/api/v1/messages/{messageId}/reactions',
+			responseSchema: undefined,
+			requestHeaders: ['Authorization']
+		}
 	]);
 });
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ExternalLink, Filter, Loader2, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react';
 import { Badge } from './ui';
 import { SchemaDiffView } from './SchemaDiffView';
-import type { SchemaDiff, VerificationIssue, VerificationIssueKind } from '../../../shared/messages';
+import type { SchemaDiff, SourceRevealTarget, VerificationIssue, VerificationIssueKind } from '../../../shared/messages';
 
 type Issue = VerificationIssue;
 
@@ -190,15 +190,92 @@ function schemaDiffSummary(diffs: SchemaDiff[] | undefined): Array<{ label: stri
 	].filter((item) => item.value > 0);
 }
 
+function parseSchemaShape(schema: string | undefined): Record<string, string> | undefined {
+	if (!schema) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(schema) as unknown;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			return undefined;
+		}
+		return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
+			key,
+			typeof value === 'string' ? value : JSON.stringify(value)
+		]));
+	} catch {
+		return undefined;
+	}
+}
+
+function RawSchemaFields({
+	diff,
+	onRevealField
+}: {
+	diff: SchemaDiff;
+	onRevealField?: (location: SourceRevealTarget) => void;
+}) {
+	const frontend = parseSchemaShape(diff.feLabel);
+	const backend = parseSchemaShape(diff.beLabel);
+	if (!frontend && !backend) {
+		return null;
+	}
+	const locationFor = (side: 'fe' | 'be', key: string) =>
+		diff.fields.find((field) => field[side]?.key === key)?.[side]?.location;
+
+	const renderPanel = (side: 'fe' | 'be', label: string, schema: Record<string, string> | undefined) => schema ? (
+		<div className={`sv-mm-raw-schema sv-mm-raw-schema-${side}`}>
+			<span className="sv-mm-explain-label">{label}</span>
+			<div className="sv-mm-raw-fields">
+				{Object.entries(schema).map(([key, type]) => {
+					const location = locationFor(side, key);
+					const content = (
+						<>
+							<code>{key}</code>
+							<span>{type}</span>
+						</>
+					);
+					return location && onRevealField ? (
+						<button
+							key={key}
+							type="button"
+							className="sv-mm-raw-field"
+							title={`Open ${key} usage at line ${location.line}`}
+							onClick={() => onRevealField(location)}
+						>
+							{content}
+						</button>
+					) : (
+						<div key={key} className="sv-mm-raw-field">
+							{content}
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	) : null;
+
+	return (
+		<div className="sv-mm-raw-schema-grid">
+			{renderPanel('fe', diff.scope === 'request' ? 'Frontend request fields' : 'Frontend response fields', frontend)}
+			{renderPanel('be', diff.scope === 'request' ? 'Backend request fields' : 'Backend response fields', backend)}
+		</div>
+	);
+}
+
 function MismatchCard({
 	mismatch,
 	onReveal,
+	onRevealField,
 	onExplain,
+	onCopyFix,
 	aiExplanation
 }: {
 	mismatch: ParsedMismatch;
 	onReveal?: (mismatch: ParsedMismatch) => void;
+	onRevealField?: (location: SourceRevealTarget) => void;
 	onExplain?: (mismatch: ParsedMismatch) => void;
+	onCopyFix?: (mismatch: ParsedMismatch) => void;
 	aiExplanation?: AiExplanationState;
 }) {
 	const [expanded, setExpanded] = useState(false);
@@ -236,6 +313,20 @@ function MismatchCard({
 						<span className="sv-mm-severity" title={mismatch.description}>
 							{sevCfg.label}
 						</span>
+						{onCopyFix ? (
+							<button
+								type="button"
+								className="sv-ui-button sv-ui-button-sm sv-ui-button-outline sv-mm-open"
+								title="Copy a targeted fix stub or prompt"
+								onClick={(event) => {
+									event.stopPropagation();
+									onCopyFix(mismatch);
+								}}
+							>
+								<Sparkles size={10} />
+								Fix
+							</button>
+						) : null}
 						{mismatch.uri && onReveal ? (
 							<button
 								type="button"
@@ -325,7 +416,12 @@ function MismatchCard({
 						</div>
 					) : null}
 					{mismatch.schemaDiffs && mismatch.schemaDiffs.length > 0 ? (
-						<SchemaDiffView diffs={mismatch.schemaDiffs} />
+						<>
+							<SchemaDiffView diffs={mismatch.schemaDiffs} onRevealField={onRevealField} />
+							{mismatch.schemaDiffs.map((diff, index) => (
+								<RawSchemaFields key={`${diff.scope}-${index}`} diff={diff} onRevealField={onRevealField} />
+							))}
+						</>
 					) : null}
 				</div>
 			) : null}
@@ -336,12 +432,16 @@ function MismatchCard({
 export function VerificationView({
 	mismatches,
 	onRevealIssue,
+	onRevealField,
 	onExplainIssue,
+	onCopyIssueFix,
 	aiExplanations
 }: {
 	mismatches: Issue[];
 	onRevealIssue?: (issue: Issue) => void;
+	onRevealField?: (location: SourceRevealTarget) => void;
 	onExplainIssue?: (requestId: string, issue: Issue) => void;
+	onCopyIssueFix?: (issue: Issue) => void;
 	aiExplanations?: Record<string, AiExplanationState>;
 }) {
 	const [filter, setFilter] = useState<FilterType>('all');
@@ -421,6 +521,15 @@ export function VerificationView({
 									}
 								}
 								: undefined}
+							onCopyFix={onCopyIssueFix
+								? (item) => {
+									const issue = issueById.get(item.id);
+									if (issue) {
+										onCopyIssueFix(issue);
+									}
+								}
+								: undefined}
+							onRevealField={onRevealField}
 							aiExplanation={aiExplanations?.[mismatch.id]}
 						/>
 					))

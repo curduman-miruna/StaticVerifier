@@ -459,6 +459,45 @@ function buildInterfaceName(endpoint: DiscoveredApi, suffix: 'Request' | 'Respon
 	return `${method}${pathName || 'Endpoint'}${suffix}`;
 }
 
+function confidenceFor(endpoint: DiscoveredApi): { label: string; className: string; title: string } {
+	const hasSchema = Boolean(endpoint.requestSchema || endpoint.responseSchema);
+	const hasFields = Boolean(endpoint.fieldLocations?.length);
+	if (hasSchema && hasFields) {
+		return { label: 'High confidence', className: 'discovery-confidence-high', title: 'Path, schema, and source fields were discovered.' };
+	}
+	if (hasSchema || hasFields) {
+		return { label: 'Inferred', className: 'discovery-confidence-medium', title: 'Endpoint was discovered with partial schema/source details.' };
+	}
+	return { label: 'Partial', className: 'discovery-confidence-low', title: 'Endpoint path was discovered, but schema inference is limited.' };
+}
+
+function RelationshipView({
+	endpoint,
+	counterpart
+}: {
+	endpoint: DiscoveredApi;
+	counterpart?: DiscoveredApi;
+}) {
+	const frontend = endpoint.side === 'frontend' ? endpoint : counterpart;
+	const backend = endpoint.side === 'backend' ? endpoint : counterpart;
+	const renderNode = (label: string, item: DiscoveredApi | undefined) => (
+		<div className={`discovery-rel-node ${item ? '' : 'is-empty'}`}>
+			<span className="discovery-rel-label">{label}</span>
+			<strong>{item ? `${item.method} ${item.path}` : 'Not found'}</strong>
+			<span>{item ? `${getFileName(item.source)}:${item.line}` : 'No counterpart discovered'}</span>
+			<span>{item?.requestSchema ? 'request model' : 'no request model'} / {item?.responseSchema ? 'response model' : 'no response model'}</span>
+			<span>{item?.requestHeaders?.length ? `headers: ${item.requestHeaders.join(', ')}` : 'no required/sent headers'}</span>
+		</div>
+	);
+	return (
+		<div className="discovery-relationship">
+			{renderNode('Frontend call', frontend)}
+			<div className="discovery-rel-link">matches</div>
+			{renderNode('Backend route', backend)}
+		</div>
+	);
+}
+
 function CopyButton({ text }: { text: string }) {
 	const [copied, setCopied] = useState(false);
 	return (
@@ -594,6 +633,7 @@ function EndpointRow({
 	const mismatch = issues.length > 0;
 	const issueBadges = uniqueIssueBadges(issues);
 	const counterpart = getCounterpartEndpoint(endpoint, endpointLookup);
+	const confidence = confidenceFor(endpoint);
 	const frontendEndpoint = counterpart ? (endpoint.side === 'frontend' ? endpoint : counterpart) : undefined;
 	const backendEndpoint = counterpart ? (endpoint.side === 'backend' ? endpoint : counterpart) : undefined;
 	const issueSchemaDiffs = collectSchemaDiffs(issues).map((diff) =>
@@ -648,6 +688,9 @@ function EndpointRow({
 						</span>
 						<code className="discovery-path">{endpoint.path}</code>
 						<span className="discovery-location">{endpoint.side === 'frontend' ? 'FE' : 'BE'}</span>
+						<span className={`discovery-confidence ${confidence.className}`} title={confidence.title}>
+							{confidence.label}
+						</span>
 						{issueBadges.map((issue) => (
 							<span key={issue.label} className={`discovery-issue-tag ${issue.className}`} title={issue.title}>
 								<AlertCircle size={11} />
@@ -693,6 +736,7 @@ function EndpointRow({
 			</div>
 			{expanded && hasSchema ? (
 				<div className="discovery-schema-under">
+					<RelationshipView endpoint={endpoint} counterpart={counterpart} />
 					{schemaDiffs.length > 0 ? (
 						<>
 							<div className="discovery-schema-mapping">

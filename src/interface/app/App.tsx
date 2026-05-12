@@ -6,7 +6,7 @@ import { Badge, Button, Card } from './components/ui';
 import { useHostMessage } from './hooks/useHostMessage';
 import { postToHost } from './hooks/useVsCodeApi';
 import { ContractInput, ContractSourceEntry, InitialState } from './types/messages';
-import type { SchemaFieldSourceLocation, VerificationIssue } from '../../shared/messages';
+import type { SchemaFieldSourceLocation, SourceRevealTarget, VerificationIssue } from '../../shared/messages';
 
 type DiscoveredApi = {
 	uri: string;
@@ -143,6 +143,16 @@ export default function App() {
 			return;
 		}
 
+		if (message.type === 'contractSourcesChanged') {
+			setFrontend({ entries: cleanEntries(message.frontend.entries) });
+			setBackend({ entries: cleanEntries(message.backend.entries) });
+			setHasConfiguredPaths(true);
+			setIsDirty(false);
+			setIsEditMode(false);
+			setLastScannedAt(new Date());
+			return;
+		}
+
 		if (message.type === 'aiExplanationResult') {
 			setAiExplanations((current) => ({
 				...current,
@@ -210,6 +220,16 @@ export default function App() {
 		postToHost({ type: 'discoverApis' });
 	};
 
+	const exportOpenApi = () => {
+		postToHost({ type: 'exportOpenApi' });
+	};
+
+	const loadDemoSources = () => {
+		setIsSaving(true);
+		setCountStatus('loading');
+		postToHost({ type: 'loadDemoSources' });
+	};
+
 	const revealDiscoveredApi = (item: DiscoveredApi) => {
 		const selectedKey = apiMatchKey(item);
 		const counterpart = discoveredApis.find((candidate) =>
@@ -260,6 +280,19 @@ export default function App() {
 		});
 	};
 
+	const revealVerificationField = (location: SourceRevealTarget) => {
+		postToHost({
+			type: 'revealVerificationIssue',
+			uri: location.uri,
+			line: location.line,
+			column: location.column,
+			method: location.method,
+			path: location.path,
+			side: location.side,
+			highlightText: location.highlightText
+		});
+	};
+
 	const explainVerificationIssue = (requestId: string, issue: VerificationIssue) => {
 		setAiExplanations((current) => ({
 			...current,
@@ -268,6 +301,13 @@ export default function App() {
 		postToHost({
 			type: 'explainVerificationIssue',
 			requestId,
+			issue
+		});
+	};
+
+	const copyIssueFix = (issue: VerificationIssue) => {
+		postToHost({
+			type: 'copyIssueFix',
 			issue
 		});
 	};
@@ -318,6 +358,8 @@ export default function App() {
 			: 'ready';
 	const isHeaderScanning = isSaving || countStatus === 'loading' || isDiscoveringApis;
 	const totalEndpoints = discoveredApis.length;
+	const isDemoActive = frontend.entries.some((entry) => entry.value === '.staticverifier-demo/frontend/demoClient.ts')
+		&& backend.entries.some((entry) => entry.value === '.staticverifier-demo/backend/demoApi.py');
 
 	const handleMonitorRescan = async () => {
 		verifyContracts();
@@ -433,10 +475,15 @@ export default function App() {
 						isDiscovering={isDiscoveringApis}
 						onRescan={handleMonitorRescan}
 						onRevealIssue={revealVerificationIssue}
+						onRevealField={revealVerificationField}
 						onExplainIssue={explainVerificationIssue}
+						onCopyIssueFix={copyIssueFix}
 						aiExplanations={aiExplanations}
 						onRevealDiscoveredApi={revealDiscoveredApi}
 						onRefreshDiscovery={discoverApis}
+						onExportOpenApi={exportOpenApi}
+						onLoadDemoSources={loadDemoSources}
+						demoActive={isDemoActive}
 					/>
 				) : null}
 			</main>

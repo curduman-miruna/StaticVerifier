@@ -112,6 +112,11 @@ export type HostMessage = {
 		fileCount: number;
 	}>;
 } | {
+	type: 'contractSourcesChanged';
+	frontend: ContractInput;
+	backend: ContractInput;
+	demoActive?: boolean;
+} | {
 	type: 'aiExplanationResult';
 	requestId: string;
 	text?: string;
@@ -139,6 +144,12 @@ export type PopupMessage =
 		type: 'discoverApis';
 	}
 	| {
+		type: 'exportOpenApi';
+	}
+	| {
+		type: 'loadDemoSources';
+	}
+	| {
 		type: 'revealDiscoveredApi';
 		uri: string;
 		line: number;
@@ -163,5 +174,9 @@ export type PopupMessage =
 	| {
 		type: 'explainVerificationIssue';
 		requestId: string;
+		issue: VerificationIssue;
+	}
+	| {
+		type: 'copyIssueFix';
 		issue: VerificationIssue;
 	};

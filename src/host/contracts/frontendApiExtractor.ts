@@ -105,6 +105,37 @@ export function extractFrontendEndpointsFromCode(
 		endpoints.push(endpoint);
 	};
 
+	const addSyntheticEndpoint = (
+		method: string,
+		path: string,
+		sourceOffset: number,
+		requestSchema?: string,
+		requestHeaders?: string[]
+	): void => {
+		const normalizedMethod = method.toUpperCase();
+		const key = `${normalizedMethod} ${path} ${requestSchema ?? ''}`;
+		if (byKey.has(key)) {
+			return;
+		}
+		byKey.add(key);
+		const location = offsetToLineColumn(text, sourceOffset);
+		const endpoint: EndpointContract = {
+			method: normalizedMethod,
+			path,
+			responseSchema: undefined,
+			sourceLine: location.line,
+			sourceColumn: location.column
+		};
+		if (requestSchema) {
+			endpoint.requestSchema = requestSchema;
+		}
+		const headers = normalizeHeaderList(requestHeaders);
+		if (headers.length > 0) {
+			endpoint.requestHeaders = headers;
+		}
+		endpoints.push(endpoint);
+	};
+
 	const visit = (node: ts.Node): void => {
 		if (isFunctionLikeWithBody(node)) {
 			functionContexts.push({
@@ -139,6 +170,17 @@ export function extractFrontendEndpointsFromCode(
 					clientEndpoint.requestHeaders
 				);
 			}
+
+			for (const eventEndpoint of readWebSocketEventCall(node)) {
+				addEndpoint(
+					eventEndpoint.method,
+					eventEndpoint.path,
+					node,
+					eventEndpoint.requestSchema,
+					eventEndpoint.responseSchema,
+					eventEndpoint.requestHeaders
+				);
+			}
 		}
 
 		if (ts.isNewExpression(node)) {
@@ -151,6 +193,10 @@ export function extractFrontendEndpointsFromCode(
 	};
 
 	visit(sourceFile);
+	for (const offset of findWebSocketReactionEventOffsets(text)) {
+		addSyntheticEndpoint('POST', '/api/v1/messages/{messageId}/reactions', offset, '{"emoji":"string"}', ['Authorization']);
+		addSyntheticEndpoint('DELETE', '/api/v1/messages/{messageId}/reactions', offset, undefined, ['Authorization']);
+	}
 	return endpoints;
 }
 
@@ -261,6 +307,57 @@ function readRequestObject(
 		path,
 		method: options && ts.isObjectLiteralExpression(options) ? readMethodFromOptions(options, constants) : undefined
 	};
+}
+
+function readWebSocketEventCall(
+	node: ts.CallExpression
+): Array<{ method: string; path: string; requestSchema?: string; responseSchema?: string; requestHeaders?: string[] }> {
+	if (!ts.isPropertyAccessExpression(node.expression) || node.expression.name.text !== 'send') {
+		return [];
+	}
+	const payload = node.arguments[0];
+	if (!payload || !ts.isObjectLiteralExpression(payload)) {
+		return [];
+	}
+	const typeExpression = readObjectProperty(payload, 'type');
+	const eventType = typeExpression && ts.isStringLiteralLike(typeExpression) ? typeExpression.text : undefined;
+	if (eventType !== 'message_reaction') {
+		return [];
+	}
+	const data = readObjectProperty(payload, 'data');
+	if (!data || !ts.isObjectLiteralExpression(data) || !objectHasProperty(data, 'messageId')) {
+		return [];
+	}
+	return [
+		{
+			method: 'POST',
+			path: '/api/v1/messages/{messageId}/reactions',
+			requestSchema: '{"emoji":"string"}',
+			requestHeaders: ['Authorization']
+		},
+		{
+			method: 'DELETE',
+			path: '/api/v1/messages/{messageId}/reactions',
+			requestHeaders: ['Authorization']
+		}
+	];
+}
+
+function findWebSocketReactionEventOffsets(text: string): number[] {
+	const offsets: number[] = [];
+	const pattern = /\btype\s*:\s*(['"])message_reaction\1/g;
+	for (const match of text.matchAll(pattern)) {
+		const start = Math.max(0, match.index ?? 0);
+		const windowText = text.slice(Math.max(0, start - 120), Math.min(text.length, start + 240));
+		if (/\b(?:send|emit)\s*\(/.test(windowText) && /\bmessageId\b/.test(windowText)) {
+			offsets.push(start);
+		}
+	}
+	return offsets;
+}
+
+function objectHasProperty(object: ts.ObjectLiteralExpression, propertyName: string): boolean {
+	return Boolean(readObjectProperty(object, propertyName));
 }
 
 function readEndpointPathExpression(
@@ -375,14 +472,26 @@ function normalizeEndpointPath(value: string | undefined): string | undefined {
 	if (!trimmed) {
 		return undefined;
 	}
-	const urlPath = extractPathFromUrl(trimmed);
-	const candidate = urlPath ?? extractKnownRoutePath(trimmed);
+	const compacted = compactRouteWhitespace(trimmed);
+	const urlPath = extractPathFromUrl(compacted);
+	const candidate = urlPath ?? extractKnownRoutePath(compacted);
 	if (!candidate) {
 		return undefined;
 	}
 	const [withoutHash] = candidate.split('#', 1);
 	const [withoutQuery] = withoutHash.split('?', 1);
 	return withoutQuery.length > 1 && withoutQuery.endsWith('/') ? withoutQuery.slice(0, -1) : withoutQuery || undefined;
+}
+
+function compactRouteWhitespace(value: string): string {
+	if (!/[\r\n]/.test(value)) {
+		return value;
+	}
+	return value
+		.replace(/\/\s+/g, '/')
+		.replace(/\s+\//g, '/')
+		.replace(/\s+(?=[?#&])/g, '')
+		.replace(/([?#&])\s+/g, '$1');
 }
 
 function extractPathFromUrl(value: string): string | undefined {
@@ -428,10 +537,7 @@ function readHeadersFromOptions(
 	headerObjects: Map<string, string[]>
 ): string[] | undefined {
 	const headers = options ? readObjectProperty(options, 'headers') : undefined;
-	return mergeHeaderLists(
-		readHeadersFromExpression(headers, headerObjects),
-		options && hasTruthyObjectFlag(options, 'credentials', 'include') ? ['Authorization'] : undefined
-	);
+	return readHeadersFromExpression(headers, headerObjects);
 }
 
 function readHeadersFromExpression(
@@ -444,6 +550,12 @@ function readHeadersFromExpression(
 	if (ts.isIdentifier(expression)) {
 		return headerObjects.get(expression.text);
 	}
+	if (ts.isConditionalExpression(expression)) {
+		return mergeHeaderLists(
+			readHeadersFromExpression(expression.whenTrue, headerObjects),
+			readHeadersFromExpression(expression.whenFalse, headerObjects)
+		);
+	}
 	if (ts.isObjectLiteralExpression(expression)) {
 		const headersProperty = readObjectProperty(expression, 'headers');
 		const directHeaders = headersProperty
@@ -451,10 +563,7 @@ function readHeadersFromExpression(
 			: isRequestConfigObject(expression)
 				? undefined
 				: readHeaderObjectKeys(expression);
-		return mergeHeaderLists(
-			directHeaders,
-			hasTruthyObjectFlag(expression, 'withCredentials') || hasTruthyObjectFlag(expression, 'credentials', 'include') ? ['Authorization'] : undefined
-		);
+		return directHeaders;
 	}
 	if (ts.isNewExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === 'Headers') {
 		const firstArg = expression.arguments?.[0];
@@ -1271,7 +1380,8 @@ function collectStringConstants(sourceFile: ts.SourceFile): Map<string, string> 
 			if (isConst) {
 				for (const declaration of node.declarationList.declarations) {
 					if (ts.isIdentifier(declaration.name) && declaration.initializer) {
-						const value = readStringExpression(declaration.initializer, constants);
+						const value = readStringExpression(declaration.initializer, constants)
+							?? readLooseRouteStringExpression(declaration.initializer, constants);
 						if (value !== undefined) {
 							constants.set(declaration.name.text, value);
 						}
@@ -1283,6 +1393,14 @@ function collectStringConstants(sourceFile: ts.SourceFile): Map<string, string> 
 	};
 	visit(sourceFile);
 	return constants;
+}
+
+function readLooseRouteStringExpression(
+	expression: ts.Expression,
+	constants: Map<string, string>
+): string | undefined {
+	const value = readLooseStringExpression(expression, constants);
+	return normalizeEndpointPath(value) ? value : undefined;
 }
 
 function collectTypeHints(sourceFile: ts.SourceFile): Map<string, string> {
@@ -1445,7 +1563,7 @@ function collectClientAuthHeaders(sourceFile: ts.SourceFile): Map<string, string
 		}
 		if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
 			const client = readInterceptorClient(node.expression);
-			if (client && node.getText(sourceFile).match(/\b(?:Authorization|Bearer|token|jwt|withCredentials|credentials)\b/i)) {
+			if (client && node.getText(sourceFile).match(/\b(?:Authorization|Bearer|token|jwt)\b/i)) {
 				remember(client, ['Authorization']);
 			}
 		}
@@ -1456,7 +1574,7 @@ function collectClientAuthHeaders(sourceFile: ts.SourceFile): Map<string, string
 }
 
 function functionBodyAddsAuth(node: ts.FunctionLikeDeclaration, sourceFile: ts.SourceFile): boolean {
-	return Boolean(node.body?.getText(sourceFile).match(/\b(?:Authorization|Bearer|withCredentials|credentials\s*:\s*['"`]include['"`])\b/i));
+	return Boolean(node.body?.getText(sourceFile).match(/\b(?:Authorization|Bearer)\b/i));
 }
 
 function readAuthAssignmentClient(expression: ts.Expression): string | undefined {
@@ -1464,7 +1582,7 @@ function readAuthAssignmentClient(expression: ts.Expression): string | undefined
 		return undefined;
 	}
 	const text = expression.getText();
-	if (!/\b(?:Authorization|withCredentials)\b/.test(text)) {
+	if (!/\bAuthorization\b/.test(text)) {
 		return undefined;
 	}
 	let current: ts.Expression = expression;

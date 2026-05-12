@@ -282,8 +282,18 @@ function areSchemaTypesCompatible(frontendType: string, backendType: string): bo
 	if (feParts.has('unknown') || beParts.has('unknown')) {
 		return true;
 	}
-	return Array.from(beParts).every((part) => feParts.has(part) || part === 'null')
-		|| Array.from(feParts).every((part) => beParts.has(part) || part === 'null');
+	return Array.from(beParts).every((part) => hasCompatibleTypePart(feParts, part))
+		|| Array.from(feParts).every((part) => hasCompatibleTypePart(beParts, part));
+}
+
+function hasCompatibleTypePart(acceptedParts: Set<string>, providedPart: string): boolean {
+	return providedPart === 'null'
+		|| acceptedParts.has(providedPart)
+		|| isNumericType(providedPart) && Array.from(acceptedParts).some(isNumericType);
+}
+
+function isNumericType(type: string): boolean {
+	return type === 'number' || type === 'integer' || type === 'float' || type === 'int';
 }
 
 function splitTypeUnion(type: string): Set<string> {

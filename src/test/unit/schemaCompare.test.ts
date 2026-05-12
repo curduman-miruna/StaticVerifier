@@ -28,6 +28,12 @@ test('compareSchemaStrings normalizes equivalent array notation', () => {
 	assert.equal(result.schemaDiffs, undefined);
 });
 
+test('compareSchemaStrings treats numeric primitive aliases as compatible', () => {
+	assert.equal(compareSchemaStrings('{"count":"number"}', '{"count":"integer"}', 'response').equal, true);
+	assert.equal(compareSchemaStrings('{"total":"number"}', '{"total":"float"}', 'response').equal, true);
+	assert.equal(compareSchemaStrings('{"rating":"integer"}', '{"rating":"number"}', 'request').equal, true);
+});
+
 test('compareSchemaStrings maps camelCase fields to snake_case fields', () => {
 	const result = compareSchemaStrings(
 		'{"participantIds":"string[]"}',
